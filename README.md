@@ -1,14 +1,12 @@
 # VertexTrade
 
-A from-scratch, bug-fixed, restyled rebuild of a Zerodha-style stock trading
-platform clone, built for learning full-stack React + Express + MongoDB. It
-is **not affiliated with, endorsed by, or a copy of any real broker** — all
-branding, copy, and the "team" section are fictional.
+A full-stack stock trading platform: a public marketing site, a live trading
+dashboard, and a REST API, built with React, Express, and MongoDB.
 
-VertexTrade started from a well-known open tutorial clone and a half-finished
-Vite rewrite of its marketing site, and was rebuilt into three independently
-runnable apps with the original bugs fixed and a few small features added on
-top.
+VertexTrade demonstrates an end-to-end trading product — order placement,
+real-time-feeling price updates, portfolio tracking, and a public-facing
+marketing site — implemented as three independently deployable applications
+sharing a common data layer.
 
 ## Architecture
 
@@ -28,13 +26,34 @@ top.
 ```
 
 - **frontend/** — the public marketing site (home, products, pricing, about,
-  support, signup). Static Bootstrap-styled pages, no backend calls. Links to
-  the dashboard via a "Login" button.
-- **dashboard/** — the actual trading UI: watchlist, buy/sell order flow,
-  holdings, positions, orders, and a portfolio summary, all talking to the
-  backend.
+  support, signup). Static, Bootstrap-styled pages. Links to the dashboard
+  via a "Login" button.
+- **dashboard/** — the trading UI: watchlist, buy/sell order flow, holdings,
+  positions, orders, and a portfolio summary, all backed by the API.
 - **backend/** — Express REST API backed by MongoDB (via Mongoose) for
   holdings, positions, and orders.
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend / Dashboard | React, Vite, Bootstrap |
+| Backend | Node.js, Express |
+| Database | MongoDB, Mongoose |
+| Tooling | ESLint / oxlint |
+
+## Features
+
+- Full **buy and sell** order flow through a shared order modal with
+  client-side quantity/price validation
+- **Holdings, Positions, and Orders** are all real, MongoDB-backed data
+  fetched live from the API — not hardcoded or static
+- A backend **price simulator** nudges holding/position prices by a small
+  random amount every few seconds; the dashboard polls for updates, so rows
+  flash green/red like a live market feed
+- **Portfolio summary** (investment, current value, P&L) computed live from
+  real holdings data
+- Watchlist with live search filtering
 
 ## Setup
 
@@ -78,27 +97,18 @@ Each app reads its own `.env` (Vite apps use `VITE_`-prefixed vars):
 | backend    | `MONGO_URL`            | *(required)*               | MongoDB connection string         |
 | backend    | `PORT`                 | `3002`                     | API port                          |
 
-## Features
+## Roadmap
 
-- Watchlist with live search filtering
-- Buy **and** Sell order flow (the original tutorial's Sell button did
-  nothing — this rebuild wires both to a shared order modal with client-side
-  quantity/price validation)
-- Holdings, Positions, and Orders are all real, MongoDB-backed data fetched
-  from the API — the original left Positions on static mock data and Orders
-  permanently hardcoded to "no orders yet"
-- A lightweight backend "price simulator" nudges holding/position prices by
-  a small random amount every few seconds, and the dashboard polls for it,
-  so rows flash green/red like a live market feed
-- Portfolio summary (investment, current value, P&L) computed from real
-  holdings data instead of hardcoded numbers
+- **Authentication** — currently a single-user demo; all sessions see the
+  same data.
+- **Funds & Margin** — the Funds and Apps pages are illustrative; there is
+  no funds/margin backend yet.
+- **Live market data** — the watchlist is currently frontend-only sample
+  data; only Holdings, Positions, and Orders are backend-driven.
 
-## Known limitations
+## Disclaimer
 
-- **No authentication.** This is a single-user demo — anyone who opens the
-  dashboard sees the same data. Don't deploy this as-is for multiple users.
-- **Funds and Apps pages are illustrative/mocked.** There's no funds/margin
-  backend; those numbers are static placeholders, clearly not wired to
-  real data.
-- The watchlist itself is frontend-only mock data (matching the original
-  scope) — only Holdings/Positions/Orders are backend-driven.
+VertexTrade is an independent demo/portfolio project and is not a real
+trading platform. It is not affiliated with, endorsed by, or associated with
+any real broker — no real money, real orders, or real market data are
+involved.
