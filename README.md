@@ -52,12 +52,31 @@ sharing a common data layer.
   than is actually held — closing the position removes the holding
 - **Holdings, Positions, and Orders** are all real, MongoDB-backed data
   fetched live from the API — not hardcoded or static
-- A backend **price simulator** nudges holding/position prices by a small
-  random amount every few seconds; the dashboard polls for updates, so rows
-  flash green/red like a live market feed
+- A backend **price simulator** nudges every holding/position price by a
+  small random amount (0.05%–0.4%) on a 4-second tick, recomputing `net`
+  against average cost each time; the dashboard polls for updates on a
+  5-second interval across all four data views (Holdings, Positions,
+  Orders, Summary), so rows flash green/red like a live market feed
 - **Portfolio summary** (investment, current value, P&L) computed live from
   real holdings data
 - Watchlist with live search filtering
+
+## API
+
+| Method | Path | Body | Notes |
+| --- | --- | --- | --- |
+| GET | `/allHoldings` | — | All Holdings documents |
+| GET | `/allPositions` | — | All Positions documents |
+| GET | `/allOrders` | — | All Orders, newest first |
+| POST | `/newOrder` | `{ name, qty, price, mode }` | `mode` is `"BUY"` or `"SELL"`. Validated server-side (non-empty name, positive integer qty, positive finite price, valid mode) in addition to the dashboard's client-side checks. A `BUY` opens/averages into a Holdings document; a `SELL` reduces it and returns `400` if it exceeds the held quantity |
+
+## Data models
+
+**Holdings** — `{ name, qty, avg, price, net, day }` — one document per symbol currently held; `avg` is the quantity-weighted cost basis, `price` is the simulated last-traded price, `net` is `(price - avg) / avg` as a percentage.
+
+**Positions** — `{ product, name, qty, avg, price, net, day, isLoss }` — seeded independently of Holdings; nudged by the same price simulator.
+
+**Orders** — `{ name, qty, price, mode, timestamps }` — an immutable log of every accepted order.
 
 ## Setup
 
