@@ -29,12 +29,15 @@ async function tickCollection(Model) {
       const newPrice = Math.max(0.05, doc.price * (1 + movePercent / 100));
       const dayChangePercent = doc.avg ? ((newPrice - doc.avg) / doc.avg) * 100 : movePercent;
 
+      const netChangePercent = doc.avg ? ((newPrice - doc.avg) / doc.avg) * 100 : 0;
+
       return Model.updateOne(
         { _id: doc._id },
         {
           $set: {
             price: Math.round(newPrice * 100) / 100,
             day: formatPercent(movePercent),
+            net: formatPercent(netChangePercent),
             isLoss: dayChangePercent < 0,
           },
         }
@@ -50,4 +53,4 @@ function startPriceSimulator({ HoldingsModel, PositionsModel }) {
   }, TICK_INTERVAL_MS);
 }
 
-module.exports = { startPriceSimulator };
+module.exports = { startPriceSimulator, formatPercent };

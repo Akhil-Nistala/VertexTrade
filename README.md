@@ -45,7 +45,11 @@ sharing a common data layer.
 ## Features
 
 - Full **buy and sell** order flow through a shared order modal with
-  client-side quantity/price validation
+  client-side quantity/price validation, and server-side validation plus
+  cost-basis logic: a **buy** opens a new holding or averages into an
+  existing one (quantity-weighted average cost), and a **sell** reduces
+  the held quantity — or is rejected with a 400 if it would sell more
+  than is actually held — closing the position removes the holding
 - **Holdings, Positions, and Orders** are all real, MongoDB-backed data
   fetched live from the API — not hardcoded or static
 - A backend **price simulator** nudges holding/position prices by a small

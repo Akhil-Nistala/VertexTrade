@@ -9,6 +9,7 @@ const { HoldingsModel } = require("./model/HoldingsModel");
 const { PositionsModel } = require("./model/PositionsModel");
 const { OrdersModel } = require("./model/OrdersModel");
 const { startPriceSimulator } = require("./priceSimulator");
+const { applyBuy, applySell } = require("./services/holdingsService");
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
@@ -48,7 +49,19 @@ app.post("/newOrder", async (req, res) => {
     });
   }
 
-  const newOrder = new OrdersModel({ name: name.trim(), qty, price, mode });
+  const trimmedName = name.trim();
+
+  try {
+    if (mode === "BUY") {
+      await applyBuy(trimmedName, qty, price);
+    } else {
+      await applySell(trimmedName, qty);
+    }
+  } catch (err) {
+    return res.status(400).json({ message: err.message });
+  }
+
+  const newOrder = new OrdersModel({ name: trimmedName, qty, price, mode });
   await newOrder.save();
 
   res.json({ message: "Order saved!" });
