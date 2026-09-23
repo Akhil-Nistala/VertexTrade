@@ -1,0 +1,145 @@
+import React, { useContext, useMemo, useState } from "react";
+
+import { Tooltip, Grow } from "@mui/material";
+
+import {
+  BarChartOutlined,
+  KeyboardArrowDown,
+  KeyboardArrowUp,
+  MoreHoriz,
+} from "@mui/icons-material";
+
+import GeneralContext from "./GeneralContext";
+import { watchlist } from "../data/data";
+import { DoughnutChart } from "./DoughnutChart";
+
+const CHART_COLORS = [
+  "rgba(255, 99, 132, 0.5)",
+  "rgba(54, 162, 235, 0.5)",
+  "rgba(255, 206, 86, 0.5)",
+  "rgba(75, 192, 192, 0.5)",
+  "rgba(153, 102, 255, 0.5)",
+  "rgba(255, 159, 64, 0.5)",
+];
+const CHART_BORDERS = [
+  "rgba(255, 99, 132, 1)",
+  "rgba(54, 162, 235, 1)",
+  "rgba(255, 206, 86, 1)",
+  "rgba(75, 192, 192, 1)",
+  "rgba(153, 102, 255, 1)",
+  "rgba(255, 159, 64, 1)",
+];
+
+const WatchList = () => {
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return watchlist;
+    return watchlist.filter((stock) => stock.name.toLowerCase().includes(q));
+  }, [search]);
+
+  const data = {
+    labels: filtered.map((stock) => stock.name),
+    datasets: [
+      {
+        label: "Price",
+        data: filtered.map((stock) => stock.price),
+        backgroundColor: CHART_COLORS,
+        borderColor: CHART_BORDERS,
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  return (
+    <div className="watchlist-container">
+      <div className="search-container">
+        <input
+          type="text"
+          name="search"
+          id="search"
+          placeholder="Search eg:infy, bse, nifty fut weekly, gold mcx"
+          className="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <span className="counts">
+          {filtered.length} / {watchlist.length}
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="empty-state">No matching instruments.</p>
+      ) : (
+        <>
+          <ul className="list">
+            {filtered.map((stock) => (
+              <WatchListItem stock={stock} key={stock.name} />
+            ))}
+          </ul>
+
+          <DoughnutChart data={data} />
+        </>
+      )}
+    </div>
+  );
+};
+
+export default WatchList;
+
+const WatchListItem = ({ stock }) => {
+  const [showWatchlistActions, setShowWatchlistActions] = useState(false);
+
+  return (
+    <li
+      onMouseEnter={() => setShowWatchlistActions(true)}
+      onMouseLeave={() => setShowWatchlistActions(false)}
+    >
+      <div className="item">
+        <p className={stock.isDown ? "down" : "up"}>{stock.name}</p>
+        <div className="itemInfo">
+          <span className="percent">{stock.percent}</span>
+          {stock.isDown ? (
+            <KeyboardArrowDown className="down" />
+          ) : (
+            <KeyboardArrowUp className="down" />
+          )}
+          <span className="price">{stock.price}</span>
+        </div>
+      </div>
+      {showWatchlistActions && <WatchListActions uid={stock.name} />}
+    </li>
+  );
+};
+
+const WatchListActions = ({ uid }) => {
+  const { openOrderWindow } = useContext(GeneralContext);
+
+  return (
+    <span className="actions">
+      <span>
+        <Tooltip title="Buy (B)" placement="top" arrow TransitionComponent={Grow}>
+          <button className="buy" onClick={() => openOrderWindow(uid, "BUY")}>
+            Buy
+          </button>
+        </Tooltip>
+        <Tooltip title="Sell (S)" placement="top" arrow TransitionComponent={Grow}>
+          <button className="sell" onClick={() => openOrderWindow(uid, "SELL")}>
+            Sell
+          </button>
+        </Tooltip>
+        <Tooltip title="Analytics (A)" placement="top" arrow TransitionComponent={Grow}>
+          <button className="action">
+            <BarChartOutlined className="icon" />
+          </button>
+        </Tooltip>
+        <Tooltip title="More" placement="top" arrow TransitionComponent={Grow}>
+          <button className="action">
+            <MoreHoriz className="icon" />
+          </button>
+        </Tooltip>
+      </span>
+    </span>
+  );
+};
