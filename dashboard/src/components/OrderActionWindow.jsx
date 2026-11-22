@@ -1,27 +1,38 @@
-import React, { useContext, useMemo, useState } from "react";
+import React, { useCallback, useContext, useState } from "react";
 
 import { api } from "../config/api";
 import GeneralContext from "../context/GeneralContext";
+import { usePolling } from "../hooks/usePolling";
+import { formatRupees, useFunds } from "../hooks/useFunds";
 
 import "../styles/orderActionWindow.css";
 
+// Market order: the user picks quantity and side; the server fills at its
+// current price. The price shown here is live but indicative only.
 const OrderActionWindow = ({ uid, mode }) => {
   const [qty, setQty] = useState(1);
-  const [price, setPrice] = useState(0);
+  const [marketPrice, setMarketPrice] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const { closeOrderWindow } = useContext(GeneralContext);
+  const cash = useFunds();
+
+  const fetchPrice = useCallback(async () => {
+    try {
+      const res = await api.get("/stocks");
+      setMarketPrice(res.data.find((s) => s.symbol === uid)?.price ?? null);
+    } catch {
+      // keep the last known price
+    }
+  }, [uid]);
+
+  usePolling(fetchPrice, 4000);
 
   const isSell = mode === "SELL";
-
-  const isValid = useMemo(() => {
-    const q = Number(qty);
-    const p = Number(price);
-    return Number.isInteger(q) && q > 0 && Number.isFinite(p) && p > 0;
-  }, [qty, price]);
-
-  const margin = (Number(qty) || 0) * (Number(price) || 0);
+  const q = Number(qty);
+  const isValid = Number.isInteger(q) && q > 0;
+  const estimate = marketPrice != null && isValid ? q * marketPrice : null;
 
   const handleSubmit = async () => {
     if (!isValid || submitting) return;
@@ -30,12 +41,7 @@ const OrderActionWindow = ({ uid, mode }) => {
     setError("");
 
     try {
-      await api.post("/orders", {
-        name: uid,
-        qty: Number(qty),
-        price: Number(price),
-        mode,
-      });
+      await api.post("/orders", { name: uid, qty: q, mode });
       closeOrderWindow();
     } catch (err) {
       setError(err.response?.data?.message || "Could not place order");
@@ -50,6 +56,9 @@ const OrderActionWindow = ({ uid, mode }) => {
         <h3>
           {uid} <span>NSE</span>
         </h3>
+        <p className="market-options">
+          Market price {marketPrice != null ? formatRupees(marketPrice) : "…"}
+        </p>
       </div>
 
       <div className="regular-order">
@@ -64,22 +73,16 @@ const OrderActionWindow = ({ uid, mode }) => {
               onChange={(e) => setQty(e.target.value)}
             />
           </fieldset>
-          <fieldset>
-            <legend>Price</legend>
-            <input
-              type="number"
-              min="0"
-              step="0.05"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-            />
-          </fieldset>
         </div>
+        <p className="order-note">Fills at the market price when placed.</p>
         {error && <p className="order-error">{error}</p>}
       </div>
 
       <div className="buttons">
-        <span>Margin required ₹{margin.toFixed(2)}</span>
+        <span>
+          {isSell ? "Approx. proceeds" : "Approx. cost"} {estimate != null ? formatRupees(estimate) : "—"}
+          {" · "}Available {formatRupees(cash)}
+        </span>
         <div>
           <button
             type="button"

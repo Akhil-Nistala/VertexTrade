@@ -88,6 +88,12 @@
     cursor: pointer;
   }
 
+  .order-note {
+    color: #888;
+    font-size: 0.75rem;
+    margin: 0 0 12px;
+  }
+
   .order-error {
     color: #e94040;
     font-size: 0.8rem;

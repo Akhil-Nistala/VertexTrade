@@ -1,5 +1,5 @@
 import { Order } from "../models/order.model.js";
-import { applyBuy, applySell } from "../services/holdings.service.js";
+import { placeOrder as fillOrder } from "../services/trading.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const getOrders = asyncHandler(async (req, res) => {
@@ -7,20 +7,11 @@ const getOrders = asyncHandler(async (req, res) => {
   res.status(200).json(orders);
 });
 
-// Body is already validated and trimmed by the order validator. The holding
-// is updated first, so a rejected SELL never gets logged as an order.
+// Body is validated by the order validator: { name, qty, mode }. Any price
+// the client sends is ignored — orders fill at the server's market price.
 const placeOrder = asyncHandler(async (req, res) => {
-  const { name, qty, price, mode } = req.body;
-
-  if (mode === "BUY") {
-    await applyBuy(req.userId, name, qty, price);
-  } else {
-    await applySell(req.userId, name, qty);
-  }
-
-  const order = await Order.create({ user: req.userId, name, qty, price, mode });
-
-  res.status(201).json({ success: true, order });
+  const { order, cash } = await fillOrder(req.userId, req.body);
+  res.status(201).json({ success: true, order, cash });
 });
 
 export { getOrders, placeOrder };

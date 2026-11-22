@@ -1,12 +1,13 @@
-// Lightweight "live market" simulator: every few seconds, nudge each
-// Holdings/Positions document's price by a small bounded random percentage
-// and recompute a plausible day-change string, so the dashboard's polling
-// has something to actually show moving. No-ops gracefully on an empty
-// collection or a transient DB hiccup — this is cosmetic, not core logic.
+// Lightweight "live market": every few seconds, move each stock's price by a
+// small bounded random percentage, then copy the new prices onto every
+// holding and position so all users see the same market. Errors are
+// swallowed — a missed tick is harmless.
 
+import { Stock } from "../models/stock.model.js";
 import { Holding } from "../models/holding.model.js";
 import { Position } from "../models/position.model.js";
 import { formatPercent } from "../utils/formatPercent.js";
+import { percentChange, roundMoney } from "../utils/money.js";
 
 const TICK_INTERVAL_MS = 4000;
 const MIN_MOVE_PERCENT = 0.05;
@@ -18,35 +19,54 @@ const randomMovePercent = () => {
   return direction * magnitude;
 };
 
-const tickCollection = async (Model) => {
-  const docs = await Model.find({});
-  if (docs.length === 0) return;
+const tickStocks = async () => {
+  const stocks = await Stock.find({});
+  const quotes = new Map();
 
-  await Promise.all(
-    docs.map((doc) => {
-      const movePercent = randomMovePercent();
-      const newPrice = Math.max(0.05, doc.price * (1 + movePercent / 100));
-      const dayChangePercent = doc.avg ? ((newPrice - doc.avg) / doc.avg) * 100 : movePercent;
+  const ops = stocks.map((stock) => {
+    const price = roundMoney(Math.max(0.05, stock.price * (1 + randomMovePercent() / 100)));
+    quotes.set(stock.symbol, { price, open: stock.open });
+    return { updateOne: { filter: { _id: stock._id }, update: { $set: { price } } } };
+  });
 
-      const netChangePercent = doc.avg ? ((newPrice - doc.avg) / doc.avg) * 100 : 0;
+  if (ops.length > 0) await Stock.bulkWrite(ops);
+  return quotes;
+};
 
-      return Model.updateOne(
-        { _id: doc._id },
-        {
-          $set: {
-            price: Math.round(newPrice * 100) / 100,
-            day: formatPercent(movePercent),
-            net: formatPercent(netChangePercent),
-            isLoss: dayChangePercent < 0,
+// Sets price, day change (vs open), and net change (vs the holder's average
+// cost) on every document whose symbol has a quote.
+const syncToQuotes = async (Model, quotes) => {
+  const docs = await Model.find({}, { name: 1, avg: 1 }).lean();
+
+  const ops = docs
+    .filter((doc) => quotes.has(doc.name))
+    .map((doc) => {
+      const { price, open } = quotes.get(doc.name);
+      const dayPercent = percentChange(open, price);
+      return {
+        updateOne: {
+          filter: { _id: doc._id },
+          update: {
+            $set: {
+              price,
+              day: formatPercent(dayPercent),
+              net: formatPercent(percentChange(doc.avg, price)),
+              isLoss: dayPercent < 0,
+            },
           },
-        }
-      );
-    })
-  );
+        },
+      };
+    });
+
+  if (ops.length > 0) await Model.bulkWrite(ops);
+};
+
+const tick = async () => {
+  const quotes = await tickStocks();
+  await Promise.all([syncToQuotes(Holding, quotes), syncToQuotes(Position, quotes)]);
 };
 
 export const startPriceSimulator = () =>
   setInterval(() => {
-    tickCollection(Holding).catch(() => {});
-    tickCollection(Position).catch(() => {});
+    tick().catch(() => {});
   }, TICK_INTERVAL_MS);

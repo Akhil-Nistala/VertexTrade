@@ -4,9 +4,9 @@ A full-stack stock trading platform: a public marketing site, an
 authenticated trading dashboard, and a REST API, built with React, Express,
 and MongoDB.
 
-Users sign up, get a starter portfolio, and buy and sell stocks against it
-while a price simulator keeps the market moving. Each user's holdings,
-positions, and orders are private to their account.
+Users sign up, get ₹1,00,000 of virtual cash and a starter portfolio, and
+place market orders that the server fills at live simulated prices. Each
+user's cash, holdings, positions, and orders are private to their account.
 
 ## Architecture
 
@@ -61,24 +61,34 @@ The three apps are independently runnable and deployable.
 - The dashboard confirms the session with `/auth/me` on load, guards pages
   with a `withAuth` wrapper, and returns to the login page if any request
   comes back `401`.
-- New accounts start with a sample portfolio so the dashboard isn't empty.
+- New accounts start with **₹1,00,000 of virtual cash** and a sample
+  portfolio, so the dashboard isn't empty.
 
 ### Trading
-- **Buy and sell** through a shared order window, validated on the client
-  and again on the server (zod).
+- **Market orders filled by the server.** The client sends only symbol,
+  quantity, and side; the server fills at the stock's current price. A
+  client-sent price is ignored.
+- **Cash balance.** A buy is rejected with `400` if it costs more than the
+  available cash; a sell credits the proceeds.
+- **Race-safe updates.** The buy debits cash with a single conditional
+  update (`cash >= cost`), and the sell decrements the holding the same way
+  (`qty >= sold`), so two simultaneous orders can't overspend or oversell.
+  If saving the holding fails after a debit, the cash is refunded.
 - A **buy** opens a new holding or averages into an existing one
-  (quantity-weighted average cost). A **sell** reduces the quantity, removes
-  the holding when it reaches zero, and is rejected with `400` if it exceeds
-  what's held — rejected orders are never logged.
-- Every accepted order is recorded in the user's order history.
+  (quantity-weighted average cost); a **sell** removes the holding when it
+  reaches zero. Rejected orders (unknown symbol, insufficient funds,
+  oversell) are never logged.
 
-### Live portfolio
-- A backend **price simulator** moves every holding and position price by
-  0.05%–0.4% every 4 seconds and recomputes net change against cost.
-- The dashboard polls every 5 seconds; changed rows flash green or red.
-- **Portfolio summary** — investment, current value, and P&L — computed from
-  live holdings.
-- Watchlist with search filtering.
+### Live market
+- **One shared price per stock.** A `Stock` collection holds the market;
+  every 4 seconds the simulator moves each price by 0.05%–0.4% and copies it
+  onto every holding and position, so all users see the same prices.
+- Day change is measured from the open price, set when the server starts.
+- The dashboard polls every 5 seconds; changed prices flash green or red.
+- **Live watchlist** with search, served from the API — the same prices
+  orders fill at.
+- **Summary and Funds** show real cash, invested amount, holdings value, and
+  P&L.
 
 ### Backend quality
 - `app.js` / `server.js` split, so the app can be tested without a database
@@ -88,8 +98,9 @@ The three apps are independently runnable and deployable.
   logged and returned as a generic `500`.
 - Locked-down CORS (configured origins only, with credentials) and a
   `/health` endpoint.
-- **28 API tests** (Jest + supertest) covering signup, login, sessions, the
-  auth guard, per-user data scoping, validation, and buy/sell rules.
+- **37 API tests** (Jest + supertest) covering signup, login, sessions, the
+  auth guard, per-user data scoping, market-price fills, cash checks, atomic
+  buy/sell rules, the debit refund, and validation.
 
 ## API
 
@@ -108,7 +119,9 @@ per-field `errors` for validation failures.
 | GET | `/api/v1/holdings` | — | The user's holdings |
 | GET | `/api/v1/positions` | — | The user's positions |
 | GET | `/api/v1/orders` | — | The user's orders, newest first |
-| POST | `/api/v1/orders` | `{ name, qty, price, mode }` | Places an order. `qty` a positive integer, `price` a positive number, `mode` `"BUY"` or `"SELL"`. `201` with the created order; `400` on invalid input or when selling more than is held |
+| POST | `/api/v1/orders` | `{ name, qty, mode }` | Market order: fills at the server's current price. `qty` a positive integer, `mode` `"BUY"` or `"SELL"`. `201` with `{ order, cash }`; `400` on invalid input, unknown symbol, insufficient funds, or selling more than is held |
+| GET | `/api/v1/stocks` | — | Market quotes: `{ symbol, price, day, isDown }` |
+| GET | `/api/v1/funds` | — | The user's cash balance: `{ cash }` |
 
 ## Data models
 
@@ -117,8 +130,9 @@ reference.
 
 | Model | Fields | Notes |
 |---|---|---|
-| **User** | `name, email, passwordHash, timestamps` | `email` is unique and lowercased |
-| **Holding** | `user, name, qty, avg, price, net, day` | One per symbol held. `avg` is the cost basis, `price` the simulated last price, `net` = `(price − avg) / avg` |
+| **User** | `name, email, passwordHash, cash, timestamps` | `email` is unique and lowercased; `cash` starts at ₹1,00,000 |
+| **Stock** | `symbol, price, open` | The market: one document per tradable symbol. Orders fill at `price`; day change is measured from `open` |
+| **Holding** | `user, name, qty, avg, price, net, day, isLoss` | One per symbol held. `avg` is the cost basis, `price` copied from the Stock, `net` = `(price − avg) / avg` |
 | **Position** | `user, product, name, qty, avg, price, net, day, isLoss` | Part of the starter portfolio; moved by the same simulator |
 | **Order** | `user, name, qty, price, mode, timestamps` | Log of every accepted order |
 
@@ -135,17 +149,17 @@ directly.
 backend/
 ├── src/
 │   ├── app.js                  # Express app: CORS, cookies, routes, error handler
-│   ├── server.js               # Entry point: connect DB, listen, start simulator
+│   ├── server.js               # Entry point: connect DB, open market, listen, start simulator
 │   ├── seed.js                 # Resets the DB and creates the demo user
 │   ├── config/db.js            # MongoDB connection
-│   ├── routes/                 # auth, holding, position, order routers
+│   ├── routes/                 # auth, holding, position, order, stock, funds routers
 │   ├── controllers/            # Request handlers
 │   ├── middleware/             # requireAuth, zod validation, 404 + error handler
 │   ├── validators/             # zod schemas for auth and orders
-│   ├── models/                 # user, holding, position, order
-│   ├── services/               # buy/sell cost-basis logic, price simulator
-│   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers
-│   └── data/samplePortfolio.js # Starter portfolio for new accounts
+│   ├── models/                 # user, stock, holding, position, order
+│   ├── services/               # trading (market fills, cash, cost basis), price simulator
+│   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers, money
+│   └── data/                   # market.js (stock universe), samplePortfolio.js
 └── tests/                      # Jest + supertest, models mocked (no DB needed)
 ```
 
@@ -162,9 +176,8 @@ dashboard/src/
 ├── context/                # AuthContext (current user), GeneralContext (order window)
 ├── config/api.js           # axios instance (sends the auth cookie)
 ├── utils/withAuth.jsx      # Renders a page only once /auth/me confirms the session
-├── hooks/                  # usePolling, usePriceFlash
-├── styles/                 # Stylesheets
-└── data/                   # Sample watchlist
+├── hooks/                  # usePolling, usePriceFlash, useFunds
+└── styles/                 # Stylesheets
 
 frontend/src/
 ├── App.jsx                 # Routes for the marketing pages
@@ -217,16 +230,16 @@ Each app has a `.env.example`. The Vite apps work with their defaults locally.
 
 ## Known limitations and roadmap
 
-- **Shared market prices** — the simulator moves each user's copy of a stock
-  independently, so two users holding the same symbol see different prices.
-  A real system would keep one price table that holdings reference.
 - **Auth hardening** — rate limiting on login, email verification, password
   reset, and refresh-token rotation. Deployed on separate domains, the
   cookie would need `SameSite=None; Secure` plus CSRF protection.
-- **Funds & margin** — the Funds and Apps pages are illustrative; there is
-  no balance check on buys yet.
-- **Market data** — the watchlist is frontend sample data; only holdings,
-  positions, and orders come from the backend.
+- **Transactions** — the cash and holding updates are each atomic, with a
+  refund if the second step fails, but they aren't wrapped in one MongoDB
+  transaction (that needs a replica set).
+- **Money as floats** — cash and prices are rupee floats rounded to paise;
+  integer paise would avoid floating-point drift entirely.
+- **Simulated market** — prices are random walks, not real market data.
+  Adding or withdrawing funds, limit orders, and margin aren't supported.
 - **Frontend tests and CI** — the API is tested; the React apps are not yet.
 
 ## Disclaimer

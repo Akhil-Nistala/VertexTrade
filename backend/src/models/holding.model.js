@@ -8,6 +8,7 @@ const holdingSchema = new Schema({
   price: Number,
   net: String,
   day: String,
+  isLoss: Boolean,
 });
 
 const Holding = mongoose.model("Holding", holdingSchema);

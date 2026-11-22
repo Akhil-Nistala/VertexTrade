@@ -14,6 +14,8 @@ import { User } from "./models/user.model.js";
 import { Holding } from "./models/holding.model.js";
 import { Position } from "./models/position.model.js";
 import { Order } from "./models/order.model.js";
+import { Stock } from "./models/stock.model.js";
+import { openMarket } from "./data/market.js";
 import { giveStarterPortfolio, holdings, positions } from "./data/samplePortfolio.js";
 
 const DEMO_USER = { name: "Demo User", email: "demo@vertextrade.dev", password: "demo1234" };
@@ -26,7 +28,10 @@ const seed = async () => {
     Position.deleteMany({}),
     Order.deleteMany({}),
     User.deleteMany({}),
+    Stock.deleteMany({}),
   ]);
+
+  await openMarket();
 
   const demo = await User.create({
     name: DEMO_USER.name,

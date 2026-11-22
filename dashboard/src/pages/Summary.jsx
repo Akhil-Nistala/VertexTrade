@@ -3,13 +3,14 @@ import React, { useCallback, useState } from "react";
 import { api } from "../config/api";
 import { usePolling } from "../hooks/usePolling";
 import { useAuth } from "../context/AuthContext";
+import { useFunds } from "../hooks/useFunds";
 
-// No funds/margin backend in this demo — a small fixed figure stands in for
-// "available margin" so the summary layout still reads correctly.
-const MOCK_MARGIN = 3740;
+const inThousands = (value) => (value == null ? "—" : `${(value / 1000).toFixed(2)}k`);
+
 
 const Summary = () => {
   const { user } = useAuth();
+  const cash = useFunds();
   const [holdings, setHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,17 +50,17 @@ const Summary = () => {
 
         <div className="data">
           <div className="first">
-            <h3>{(MOCK_MARGIN / 1000).toFixed(2)}k</h3>
-            <p>Margin available</p>
+            <h3>{inThousands(cash)}</h3>
+            <p>Cash available</p>
           </div>
           <hr />
 
           <div className="second">
             <p>
-              Margins used <span>0</span>{" "}
+              Invested <span>{inThousands(totalInvestment)}</span>{" "}
             </p>
             <p>
-              Opening balance <span>{(MOCK_MARGIN / 1000).toFixed(2)}k</span>{" "}
+              Account value <span>{cash == null ? "—" : inThousands(cash + currentValue)}</span>{" "}
             </p>
           </div>
         </div>

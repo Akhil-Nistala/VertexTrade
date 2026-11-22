@@ -7,6 +7,8 @@ import authRoutes from "./routes/auth.routes.js";
 import holdingRoutes from "./routes/holding.routes.js";
 import positionRoutes from "./routes/position.routes.js";
 import orderRoutes from "./routes/order.routes.js";
+import stockRoutes from "./routes/stock.routes.js";
+import fundsRoutes from "./routes/funds.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 // Builds and exports the Express app without connecting to the database or
@@ -30,6 +32,8 @@ app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/holdings", holdingRoutes);
 app.use("/api/v1/positions", positionRoutes);
 app.use("/api/v1/orders", orderRoutes);
+app.use("/api/v1/stocks", stockRoutes);
+app.use("/api/v1/funds", fundsRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

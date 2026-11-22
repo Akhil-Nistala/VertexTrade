@@ -15,13 +15,14 @@ One file for everything: the pitch, the architecture, every file in the code, ev
 ## 1. The pitch
 
 **30 seconds:**
-> VertexTrade is a full-stack stock trading platform. It has three apps: a React marketing site, a React trading dashboard, and an Express + MongoDB API. Users sign up, get a starter portfolio, and buy and sell stocks while a background simulator moves prices. Auth is bcrypt plus a JWT in an httpOnly cookie, and every query is scoped to the logged-in user. The API is tested with Jest and supertest.
+> VertexTrade is a full-stack stock trading platform. It has three apps: a React marketing site, a React trading dashboard, and an Express + MongoDB API. Users sign up with ₹1,00,000 of virtual cash and place market orders that the server fills at live simulated prices. Auth is bcrypt plus a JWT in an httpOnly cookie, and every query is scoped to the logged-in user. The API is tested with Jest and supertest.
 
 **What to emphasise (pick two or three):**
 - **Per-user data isolation** — the user id always comes from the verified token, never from the request body, so one user can't read or trade another's portfolio.
-- **Real business logic** — buys average into the cost basis (quantity-weighted), sells are rejected if they exceed what you hold, and a rejected order is never logged.
+- **Real business logic** — the server picks the fill price (never the client), buys check the cash balance, buys average into the cost basis, sells are rejected if they exceed what you hold, and a rejected order is never logged.
+- **Race-safe money updates** — cash is debited and shares are removed with single conditional atomic updates, so simultaneous orders can't overspend or oversell.
 - **Secure-by-default auth** — httpOnly + SameSite cookie, no user enumeration (same message *and* similar timing for wrong email vs wrong password).
-- **Testable backend** — `app.js` / `server.js` split, so 28 HTTP tests run without a database.
+- **Testable backend** — `app.js` / `server.js` split, so 37 HTTP tests run without a database.
 
 ---
 
@@ -39,12 +40,13 @@ One file for everything: the pitch, the architecture, every file in the code, ev
      │                          │ GET /api/v1/holdings (cookie) ─▶ │ requireAuth → userId    │
      │                          │   every 5s (polling)             │ Holding.find({user}) ─▶ │ holdings
      │                          │                                  │                         │
-     │                          │                                  │ price simulator ──────▶ │ holdings,
-     │                          │                                  │ every 4s                │ positions
+     │                          │                                  │ price simulator ──────▶ │ stocks →
+     │                          │                                  │ every 4s                │ holdings, positions
 ```
 
 - **Three independently runnable apps.** The marketing site never talks to the API; it just links to the dashboard.
 - **The dashboard and API are on different ports (origins)** but the same *site* (`localhost`), which is why a `SameSite=Lax` cookie works with `withCredentials: true` and a CORS whitelist.
+- **One market for everyone:** the `stocks` collection holds one price per symbol; the simulator moves it and copies it onto every holding and position.
 - **"Real-time" is polling**, not WebSockets: the server mutates prices every 4s, the dashboard re-fetches every 5s.
 
 ---
@@ -77,14 +79,14 @@ VertexTrade/
 │   │   ├── server.js         # entry: check env, connect DB, listen, start simulator
 │   │   ├── seed.js           # wipe DB, create demo user + starter portfolio
 │   │   ├── config/db.js
-│   │   ├── routes/           # auth, holding, position, order
-│   │   ├── controllers/      # auth, holding, position, order
+│   │   ├── routes/           # auth, holding, position, order, stock, funds
+│   │   ├── controllers/      # auth, holding, position, order, stock, funds
 │   │   ├── middleware/       # auth (requireAuth), validate (zod), errorHandler
 │   │   ├── validators/       # auth, order (zod schemas)
-│   │   ├── models/           # user, holding, position, order
-│   │   ├── services/         # holdings.service (buy/sell), priceSimulator
-│   │   ├── utils/            # ApiError, asyncHandler, tokens, formatPercent
-│   │   └── data/samplePortfolio.js
+│   │   ├── models/           # user, stock, holding, position, order
+│   │   ├── services/         # trading.service (fills, cash, cost basis), priceSimulator
+│   │   ├── utils/            # ApiError, asyncHandler, tokens, formatPercent, money
+│   │   └── data/             # market.js (stock universe, openMarket), samplePortfolio.js
 │   └── tests/                # auth.test.js, order.test.js, setup.js
 ├── dashboard/src/
 │   ├── App.jsx               # /login, /signup, /* → withAuth(Home)
@@ -93,16 +95,15 @@ VertexTrade/
 │   ├── context/              # AuthContext, GeneralContext
 │   ├── config/api.js         # axios instance
 │   ├── utils/withAuth.jsx    # route guard (HOC)
-│   ├── hooks/                # usePolling, usePriceFlash
-│   ├── styles/
-│   └── data/data.js          # watchlist (static sample data)
+│   ├── hooks/                # usePolling, usePriceFlash, useFunds
+│   └── styles/
 └── frontend/src/
     ├── App.jsx
     ├── pages/                # Home, Products, Pricing, About, Support, Signup, NotFound
     └── components/           # Navbar, Footer, Logo, OpenAccount + per-page sections
 ```
 
-**The layering rule:** route → middleware (auth, validation) → controller → service/model. Controllers stay thin; business rules (cost basis, oversell check) live in the service.
+**The layering rule:** route → middleware (auth, validation) → controller → service/model. Controllers stay thin; business rules (market fills, cash check, cost basis, oversell check) live in the trading service.
 
 ---
 
@@ -110,13 +111,14 @@ VertexTrade/
 
 ### Entry points
 - **`src/app.js`** — creates the Express app; registers CORS (origin whitelist from `CLIENT_ORIGINS`, `credentials: true`), `cookie-parser`, `express.json` and `express.urlencoded` (40kb limits), `GET /health`, the four routers under `/api/v1/...`, then the 404 handler and error handler. **Exports the app without listening** — that's what makes it testable.
-- **`src/server.js`** — fails fast if `JWT_SECRET` is missing, connects MongoDB via `connectDB(MONGO_URL)`, calls `app.listen`, then `startPriceSimulator()`. Any startup error → log and `process.exit(1)`.
-- **`src/seed.js`** — connects, deletes all users/holdings/positions/orders, creates `demo@vertextrade.dev / demo1234` with a bcrypt hash, gives it the starter portfolio, disconnects.
+- **`src/server.js`** — fails fast if `JWT_SECRET` is missing, connects MongoDB via `connectDB(MONGO_URL)`, runs `openMarket()`, calls `app.listen`, then `startPriceSimulator()`. Any startup error → log and `process.exit(1)`.
+- **`src/seed.js`** — connects, deletes all users/holdings/positions/orders/stocks, re-opens the market, creates `demo@vertextrade.dev / demo1234` with a bcrypt hash, gives it the starter portfolio, disconnects.
 
 ### Routes (thin — just wiring)
 - **`auth.routes.js`** — `POST /signup` (validate → signup), `POST /login` (validate → login), `POST /logout`, `GET /me` (requireAuth → me).
 - **`holding.routes.js` / `position.routes.js`** — `router.use(requireAuth)` then `GET /`.
 - **`order.routes.js`** — `router.use(requireAuth)`; `GET /` lists, `POST /` validates with `newOrderSchema` then places.
+- **`stock.routes.js` / `funds.routes.js`** — `router.use(requireAuth)` then `GET /`.
 
 ### Middleware
 - **`auth.middleware.js` → `requireAuth`** — reads `req.cookies.token`, `jwt.verify`s it (signature + expiry), sets `req.userId = payload.sub`. Missing → `401 "Not logged in."`; invalid/expired → `401 "Session expired…"`.
@@ -132,28 +134,36 @@ VertexTrade/
 - **`holding.controller.js` / `position.controller.js`** — `Model.find({ user: req.userId })`.
 - **`order.controller.js`**
   - `getOrders` — `Order.find({user}).sort({_id: -1})` (ObjectIds embed creation time, so `_id` desc ≈ newest first).
-  - `placeOrder` — BUY → `applyBuy`, SELL → `applySell` (throws `ApiError(400)` on oversell), **then** `Order.create(...)`, `201 { success, order }`. Holding first, order second, so a rejected sell is never logged.
+  - `placeOrder` — hands `req.body` (`{ name, qty, mode }`) to the trading service; `201 { success, order, cash }`.
+- **`stock.controller.js`** — `Stock.find().sort({symbol: 1})`, returns `{ symbol, price, day, isDown }` with day change computed from `open`.
+- **`funds.controller.js`** — `User.findById(req.userId, { cash: 1 })` → `{ cash }` rounded to paise.
 
 ### Services
-- **`holdings.service.js`**
-  - `applyBuy(userId, name, qty, price)` — no holding → create with `avg = price`. Existing → `newAvg = (avg·qty + price·newQty) / (qty + newQty)`, update `net`.
-  - `applySell(userId, name, qty)` — no holding or `qty > held` → `400 "Cannot sell X — you only hold Y."`; selling everything deletes the holding; otherwise decrement. **Avg cost doesn't change on a sell** — that's how cost basis works.
-- **`priceSimulator.js`** — `setInterval` every 4s: for every holding and position, move price by ±0.05–0.4%, set `day` to the move, recompute `net` vs `avg`. Errors swallowed — it's cosmetic.
+- **`trading.service.js` → `placeOrder(userId, { name, qty, mode })`**
+  1. `Stock.findOne({ symbol: name })` → `400 "Unknown instrument"` if missing. **The fill price is `stock.price`** — the client never sends one (zod strips it if it does).
+  2. `amount = round(price × qty)`.
+  3. **BUY:** `User.findOneAndUpdate({ _id, cash: { $gte: amount } }, { $inc: { cash: -amount } })` — one atomic check-and-debit. No match → `400 "Insufficient funds…"`. Then `addToHolding` (create at the fill price, or average in: `newAvg = (avg·qty + price·newQty) / (qty + newQty)`). If that throws, **refund** the debit and rethrow.
+  4. **SELL:** `Holding.findOneAndUpdate({ user, name, qty: { $gte: qty } }, { $inc: { qty: -qty } })` — atomic check-and-decrement. No match → `400 "Cannot sell X — you only hold Y."`. Quantity reaches 0 → delete the holding. Then credit `amount` to cash. **Avg cost doesn't change on a sell.**
+  5. Only then `Order.create(...)` — so rejected orders are never logged. Returns `{ order, cash }`.
+- **`priceSimulator.js`** — `setInterval` every 4s: move each **stock** by ±0.05–0.4% (`bulkWrite`), then copy the new price onto every holding and position (`bulkWrite`): `price`, `day` (vs the stock's `open`), `net` (vs the holder's `avg`), `isLoss`. Errors swallowed — a missed tick is harmless.
 
 ### Models
-- **`user.model.js`** — `name`, `email` (unique, lowercase, trimmed), `passwordHash`, timestamps.
-- **`holding.model.js`** — `user` (ObjectId ref, required, **indexed**), `name, qty, avg, price, net, day`.
+- **`user.model.js`** — `name`, `email` (unique, lowercase, trimmed), `passwordHash`, `cash` (default ₹1,00,000, min 0), timestamps.
+- **`stock.model.js`** — `symbol` (unique), `price`, `open`. The single source of truth for prices.
+- **`holding.model.js`** — `user` (ObjectId ref, required, **indexed**), `name, qty, avg, price, net, day, isLoss`.
 - **`position.model.js`** — same plus `product`, `isLoss`.
 - **`order.model.js`** — `user`, `name, qty, price`, `mode` (enum BUY/SELL), timestamps.
 
 ### Validators (zod)
 - **`auth.validator.js`** — signup: non-empty trimmed name, valid email (trimmed + lowercased), password ≥ 8. Login: email + password strings.
-- **`order.validator.js`** — name non-empty after trim, `qty` integer > 0, `price` finite > 0, `mode` ∈ {BUY, SELL}. **`z.number()` rejects `"5"`** — strings aren't coerced.
+- **`order.validator.js`** — name non-empty after trim, `qty` integer > 0, `mode` ∈ {BUY, SELL}. **No price field** — unknown keys are stripped. **`z.number()` rejects `"5"`** — strings aren't coerced.
 
 ### Utils
 - **`ApiError`** — `Error` + `statusCode` + optional `details`.
 - **`asyncHandler(fn)`** — wraps async handlers, forwards rejections to `next(err)`. Without it, Express 4 never responds to a thrown async error and the request hangs.
 - **`tokens.js`** — `signSessionToken` (`{ sub: userId }`, 7d), `verifySessionToken`, `setSessionCookie` (httpOnly, SameSite=Lax, `secure` in production, 7-day maxAge), `clearSessionCookie`.
+- **`money.js`** — `roundMoney` (to paise) and `percentChange`.
+- **`data/market.js`** — the 18-symbol universe. `openMarket()` upserts missing stocks (`$setOnInsert`, so existing prices are kept), sets every `open` to the current price (a new "trading day" per server start), and backfills `cash` for accounts created before balances existed.
 - **`data/samplePortfolio.js`** — 13 holdings + 2 positions; `giveStarterPortfolio(userId)` inserts copies tagged with the user.
 
 ---
@@ -170,13 +180,15 @@ VertexTrade/
 - **`pages/Home.jsx`** — `TopBar` + `Dashboard`.
 - **`components/Dashboard.jsx`** — `WatchList` (inside `GeneralContextProvider`) + nested routes: `/` Summary, `/orders`, `/holdings`, `/positions`, `/funds`, `/apps`.
 - **`components/Menu.jsx`** — nav links, user initials + name, dropdown with email and **Log out**.
-- **`components/WatchList.jsx`** — static sample list from `data/data.js`, search filter (`useMemo`), hover actions open the order window, doughnut chart.
+- **`components/WatchList.jsx`** — polls `GET /stocks` every 5s, search filter (`useMemo`), price flashes via `usePriceFlash`, hover actions open the order window, doughnut chart.
 - **`context/GeneralContext.jsx`** — tracks whether the order window is open, for which symbol, BUY or SELL.
-- **`components/OrderActionWindow.jsx`** — qty/price inputs, client-side validation, `POST /orders`, shows the server error (e.g. oversell) inline.
-- **`pages/Holdings.jsx`, `Positions.jsx`, `Orders.jsx`, `Summary.jsx`** — fetch with `usePolling(fn, 5000)`; Holdings/Positions use `usePriceFlash` to flash rows. Summary computes investment, current value, P&L from holdings; greets the user by first name.
+- **`components/OrderActionWindow.jsx`** — qty input only. Shows the live market price (polls `/stocks`), approximate cost/proceeds, and available cash (`useFunds`). Posts `{ name, qty, mode }`; shows the server error (insufficient funds, oversell) inline.
+- **`pages/Holdings.jsx`, `Positions.jsx`, `Orders.jsx`, `Summary.jsx`** — fetch with `usePolling(fn, 5000)`; Holdings/Positions use `usePriceFlash` to flash rows. Summary shows real cash, invested amount, account value, and P&L; greets the user by first name.
 - **`hooks/usePolling.js`** — runs the callback immediately, then on an interval; stores the callback in a ref so the interval isn't re-created when the callback changes.
 - **`hooks/usePriceFlash.js`** — remembers previous prices in a ref; returns `{ id: "tick-up" | "tick-down" }` for changed rows, cleared after 900ms.
-- **`pages/Funds.jsx`, `Apps.jsx`** — illustrative static content.
+- **`hooks/useFunds.js`** — polls `GET /funds`, returns `cash`; also exports `formatRupees` (Indian digit grouping).
+- **`pages/Funds.jsx`** — available cash, invested, holdings value, account value, starting balance — all real.
+- **`pages/Apps.jsx`** — illustrative static content.
 
 ### Marketing site
 - **`App.jsx`** — `Navbar`, routes to the pages, `Footer`.
@@ -206,13 +218,14 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 
 ### Placing an order
 1. Hover a watchlist row → Buy/Sell → `GeneralContext.openOrderWindow(symbol, mode)`.
-2. Enter qty/price → `POST /api/v1/orders`.
+2. The window shows the live price and available cash. Enter qty → `POST /api/v1/orders { name, qty, mode }`.
 3. `requireAuth` → `req.userId`. `validate(newOrderSchema)` → `400` if bad.
-4. BUY → `applyBuy` (create or average in). SELL → `applySell` (`400` if oversell; delete if fully sold).
-5. `Order.create` → `201`. Window closes; next poll shows the new holding and order.
+4. Server looks up the stock; fill price = current market price.
+5. BUY → atomic debit if cash ≥ cost (else `400`), then create/average the holding (refund on failure). SELL → atomic decrement if qty held ≥ sold (else `400`), delete at zero, credit proceeds.
+6. `Order.create` → `201 { order, cash }`. Window closes; next poll shows the new holding, order, and balance.
 
 ### Live prices
-- Server: every 4s, the simulator updates every holding/position document.
+- Server: every 4s, the simulator moves every stock, then copies each new price onto all holdings and positions of that symbol.
 - Client: every 5s, pages re-fetch; `usePriceFlash` compares with previous prices and flashes changed rows.
 
 ### Logout and expiry
@@ -251,7 +264,7 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 - **Setup:** `tests/setup.js` sets `JWT_SECRET` and `CLIENT_ORIGINS`. Jest runs ES modules via `--experimental-vm-modules`.
 - **Approach:** `jest.unstable_mockModule` replaces the Mongoose models, then the tests `import app` and use **supertest** to send real HTTP requests in-process. No database, no open port.
 - **`auth.test.js` (10 tests):** signup normalizes input, stores only a hash, gives the starter portfolio, sets an httpOnly + SameSite=Lax cookie; duplicate email `409`; short password and bad email `400`; login success; wrong password and unknown email return the **same** `401`; `/me` without cookie `401`, with valid token `200`, tampered token `401`; logout clears the cookie.
-- **`order.test.js` (18 tests):** every data route `401` without a session; holdings/positions/orders are queried with `{ user: USER_ID }`; BUY creates a holding and logs the order; BUY averages cost (2 @ 100 + 2 @ 200 → 4 @ 150); oversell `400` and **no order logged**; full sell deletes the holding; five invalid order bodies `400`; `/health`; JSON 404.
+- **`order.test.js` (27 tests):** all six data routes `401` without a session; holdings/positions/orders/funds are queried for `USER_ID` only; `/stocks` computes day change from open; BUY **fills at the market price even when the client sends price 1**; BUY debits with the exact conditional update `{ cash: { $gte: 600 } }`; insufficient funds `400` with **no holding or order**; averaging (2 @ 100 + 2 @ 200 → 4 @ 150); **refund when the holding save fails**; SELL uses the conditional decrement and credits proceeds; full sell deletes the holding; oversell `400` with **no credit and no order**; unknown symbol `400`; five invalid bodies `400`; `/health`; JSON 404.
 - **What they don't cover:** real MongoDB behavior (unique index, queries). Next step: `mongodb-memory-server` integration tests and frontend tests.
 
 ---
@@ -262,7 +275,13 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 
 **User id from the token, never the request.** The single most important rule for multi-user data. Every query includes `user: req.userId`.
 
-**Holding update before order log.** A rejected sell throws before `Order.create`, so the order history only contains accepted orders.
+**The server sets the price.** Orders carry only symbol, qty, and side; the fill price comes from the `stocks` collection. Originally the client sent the price — a user could have bought at ₹1. Fixing that is a good story: "never trust the client with anything that decides money".
+
+**Conditional atomic updates instead of read-then-write.** `findOneAndUpdate({ cash: { $gte: cost } }, { $inc: … })` checks and changes in one operation on one document, so two concurrent buys can't both pass the check. Same for sells with `qty: { $gte: n }`. Because cash and holdings are separate documents, the service refunds the debit if the second step fails (a compensating action) instead of using a transaction, which would require a replica set.
+
+**One shared price table.** Prices used to live on each user's holding, so they drifted apart per user. Now there's one `Stock` per symbol and holdings copy from it.
+
+**Validate, then fill, then log.** Every rejection (unknown symbol, funds, oversell) throws before `Order.create`, so the order history only contains real fills.
 
 **`app.js` / `server.js` split.** Tests import the app without a database or port; the server file is the only place with side effects.
 
@@ -282,13 +301,11 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 
 ## 11. Known limitations (say these before they ask)
 
-- **Client chooses the fill price.** The order's `price` comes from the form, so a user can "buy" at any price. A real system fills at the current market price on the server.
-- **No funds or margin check.** Buys aren't limited by a balance; the Funds page is illustrative.
-- **Prices are per user.** The simulator moves each user's copy of a stock independently, so two users holding INFY see different prices. Fix: a shared `prices` collection that holdings reference.
-- **Simulator scans every document every 4s** (`find({})` then one `updateOne` each). Fine for a demo; at scale you'd update one price per symbol, or use `bulkWrite`.
-- **No transactions.** `applyBuy`/`applySell` read-modify-write the holding; two simultaneous orders on the same symbol could race. Fix: atomic `$inc` updates or a MongoDB transaction around holding + order.
-- **Watchlist is static** sample data in the frontend.
-- **Holdings' day-change colour doesn't update** — the simulator sets `isLoss`, but the Holding schema doesn't define it, so Mongoose drops it.
+- **No multi-document transaction.** Cash and holding updates are each atomic, with a refund if the second fails, but a crash between the two steps could still leave them inconsistent. Fix: a MongoDB transaction (needs a replica set) or a ledger.
+- **Buy averaging is read-then-write.** Two simultaneous buys of the same symbol could both read the old holding; cash is safe, but the average cost could be slightly off. Fix: a pipeline update, or a unique `{ user, name }` index plus retry.
+- **Money as floats.** Rupee floats rounded to paise; integer paise would avoid drift entirely.
+- **Simulator rewrites every holding every 4s.** It uses `bulkWrite`, but it's still O(all holdings). At scale, holdings would reference the stock and price would be joined at read time instead of copied.
+- **Simulated market.** Random-walk prices, market orders only — no limit orders, margin, or adding/withdrawing funds. The "day" opens when the server starts.
 - **Auth gaps:** no rate limiting on login, no email verification or password reset, tokens can't be revoked early.
 - **No frontend tests or CI.**
 
@@ -300,7 +317,7 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 The dashboard posts email and password to `/api/v1/auth/login`. zod normalizes the email. The controller finds the user and runs `bcrypt.compare` — against a dummy hash if the user doesn't exist, so timing is similar. On success it signs a JWT with the user id as `sub`, sets it as an httpOnly, SameSite=Lax cookie for 7 days, and returns the public user. The dashboard stores the user in context and navigates to where they were going.
 
 **How do you make sure one user can't see another user's data?**
-`requireAuth` puts the user id from the verified JWT on `req.userId`, and every query filters by it: `Holding.find({ user: req.userId })`, `applySell(req.userId, …)`. The client never sends a user id. Tests assert the queries are scoped.
+`requireAuth` puts the user id from the verified JWT on `req.userId`, and every query filters by it: `Holding.find({ user: req.userId })`, `placeOrder(req.userId, …)`. The client never sends a user id. Tests assert the queries are scoped.
 
 **Why httpOnly cookies instead of localStorage?**
 JavaScript can't read httpOnly cookies, so XSS can't steal the token. The trade-off is CSRF, which SameSite=Lax mitigates because the browser won't attach the cookie to cross-site POSTs.
@@ -318,7 +335,19 @@ It clears the cookie. The JWT itself stays valid until expiry — if someone cop
 Quantity-weighted mean: `(oldAvg × oldQty + price × newQty) / (oldQty + newQty)`. Two shares at 100 plus two at 200 → four at 150. Selling doesn't change average cost, only quantity.
 
 **What happens if I try to sell more than I own?**
-`applySell` throws `ApiError(400, "Cannot sell 5 ITC — you only hold 1.")`, the error handler returns it, and no order is logged because the order is created only after the holding update succeeds.
+The conditional update `{ qty: { $gte: 5 } }` matches nothing, so the service throws `ApiError(400, "Cannot sell 5 ITC — you only hold 1.")`. No cash is credited and no order is logged, because both happen only after the decrement succeeds.
+
+**What stops a user buying at a fake price?**
+The order body has no price. The server looks up the symbol in the `stocks` collection and fills at that price; if a client sends `price`, zod strips it. A test sends `price: 1` and asserts the fill is at the market price.
+
+**What if two buy requests arrive at the same moment with only enough cash for one?**
+The debit is `findOneAndUpdate({ _id, cash: { $gte: cost } }, { $inc: { cash: -cost } })`. MongoDB applies single-document updates atomically, so the first one matches and the second finds the balance too low and gets `400`. A read-then-write ("load user, check cash, save") would let both through.
+
+**What happens if the debit succeeds but saving the holding fails?**
+The service catches the error, refunds the cash with `$inc: { cash: +cost }`, and rethrows (`500`). It's a compensating action; a transaction would be cleaner but needs a replica set.
+
+**How do prices stay the same for everyone?**
+There's one `Stock` document per symbol. The simulator moves those, then copies each price onto every holding and position with that symbol.
 
 **Why split app.js and server.js?**
 So tests can import the app and send it requests with supertest without connecting to MongoDB, opening a port, or starting the simulator.
@@ -342,16 +371,16 @@ Frontend on Vercel, API on Render. Ideally proxy `/api` through the frontend's d
 Honest answer: it was quick to model and iterate on. For real money I'd prefer PostgreSQL — ACID transactions across holdings and orders, numeric types instead of floats, constraints like `qty >= 0`.
 
 **What's the biggest weakness?**
-The client chooses the fill price and there's no balance check — fine for a demo, unacceptable for a real broker. I'd fill at the server-side market price and debit a balance inside a transaction.
+Cash and holdings are updated in two separate atomic steps with a compensating refund, not one transaction. I'd move to a replica set and wrap the debit, holding update, and order insert in a transaction — or keep an append-only ledger and derive balances from it.
 
 **How did you test it?**
-28 Jest + supertest tests with mocked models: auth flows, cookie flags, the auth guard on every route, per-user query scoping, buy/sell rules, and validation. Plus manual end-to-end checks against a real database.
+37 Jest + supertest tests with mocked models: auth flows, cookie flags, the auth guard on every route, per-user query scoping, market-price fills, the exact atomic update conditions, insufficient funds, the refund path, buy/sell rules, and validation. Plus manual end-to-end checks against a real database.
 
 **Why are prices stored as strings like "+0.58%"?**
 `net` and `day` are display strings carried over from the original UI. Better: store numbers and format in the frontend.
 
 **What did you refactor, and why?**
-The backend started as one `index.js` with inline routes and no error handling. I split it into `app.js`/`server.js` and route/controller/service/model layers, added zod validation, `ApiError` + a central error handler, and tests. I also moved the API to versioned REST paths (`/api/v1/holdings` instead of `/allHoldings`).
+The backend started as one `index.js` with inline routes and no error handling. I split it into `app.js`/`server.js` and route/controller/service/model layers, added zod validation, `ApiError` + a central error handler, and tests. I also moved the API to versioned REST paths (`/api/v1/holdings` instead of `/allHoldings`), and fixed the trading model: server-side fill prices, a cash balance with atomic debits, and one shared price table.
 
 ---
 
@@ -418,7 +447,8 @@ It signals a new resource was created; the response includes it.
 - Simulator: every **4s**, moves **0.05–0.4%**.
 - Dashboard polling: every **5s**; row flash lasts **900ms**.
 - Starter portfolio: **13 holdings, 2 positions**.
-- Tests: **28** (10 auth, 18 orders/data), no DB needed.
+- Tests: **37** (10 auth, 27 trading/data), no DB needed.
+- Starting cash: **₹1,00,000**. Market: **18 symbols**. Orders fill at the server's price.
 - Demo login: `demo@vertextrade.dev` / `demo1234` (created by `npm run seed`, which wipes the DB).
 - API base: `/api/v1`; health check at `/health`.
 - One command: `npm run dev` at the root starts all three apps.

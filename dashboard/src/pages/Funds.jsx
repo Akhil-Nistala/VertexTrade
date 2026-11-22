@@ -1,13 +1,36 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 
-// Illustrative only — there's no funds/margin backend in this demo.
+import { api } from "../config/api";
+import { usePolling } from "../hooks/usePolling";
+import { formatRupees, useFunds } from "../hooks/useFunds";
+
+const STARTING_CASH = 100000;
+
+// Real balance from the API; invested and current value are computed from
+// the user's holdings. Adding or withdrawing funds isn't supported.
 const Funds = () => {
+  const cash = useFunds();
+  const [holdings, setHoldings] = useState([]);
+
+  const fetchHoldings = useCallback(async () => {
+    try {
+      const res = await api.get("/holdings");
+      setHoldings(res.data);
+    } catch {
+      // keep the last known holdings
+    }
+  }, []);
+
+  usePolling(fetchHoldings, 5000);
+
+  const invested = holdings.reduce((sum, h) => sum + h.avg * h.qty, 0);
+  const currentValue = holdings.reduce((sum, h) => sum + h.price * h.qty, 0);
+  const accountValue = cash == null ? null : cash + currentValue;
+
   return (
     <>
       <div className="funds">
-        <p>Instant, zero-cost fund transfers with UPI </p>
-        <button type="button" className="btn btn-green">Add funds</button>
-        <button type="button" className="btn btn-blue">Withdraw</button>
+        <p>Every account starts with {formatRupees(STARTING_CASH)} of virtual cash.</p>
       </div>
 
       <div className="row">
@@ -18,54 +41,25 @@ const Funds = () => {
 
           <div className="table">
             <div className="data">
-              <p>Available margin</p>
-              <p className="imp colored">4,043.10</p>
-            </div>
-            <div className="data">
-              <p>Used margin</p>
-              <p className="imp">3,757.30</p>
-            </div>
-            <div className="data">
               <p>Available cash</p>
-              <p className="imp">4,043.10</p>
+              <p className="imp colored">{formatRupees(cash)}</p>
+            </div>
+            <div className="data">
+              <p>Invested</p>
+              <p className="imp">{formatRupees(invested)}</p>
+            </div>
+            <div className="data">
+              <p>Holdings value</p>
+              <p className="imp">{formatRupees(currentValue)}</p>
             </div>
             <hr />
             <div className="data">
-              <p>Opening Balance</p>
-              <p>4,043.10</p>
+              <p>Account value</p>
+              <p>{formatRupees(accountValue)}</p>
             </div>
             <div className="data">
-              <p>Payin</p>
-              <p>4064.00</p>
-            </div>
-            <div className="data">
-              <p>SPAN</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Delivery margin</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Exposure</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Options premium</p>
-              <p>0.00</p>
-            </div>
-            <hr />
-            <div className="data">
-              <p>Collateral (Liquid funds)</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Collateral (Equity)</p>
-              <p>0.00</p>
-            </div>
-            <div className="data">
-              <p>Total Collateral</p>
-              <p>0.00</p>
+              <p>Starting balance</p>
+              <p>{formatRupees(STARTING_CASH)}</p>
             </div>
           </div>
         </div>
@@ -73,7 +67,6 @@ const Funds = () => {
         <div className="col">
           <div className="commodity">
             <p>You don't have a commodity account</p>
-            <button type="button" className="btn btn-blue">Open Account</button>
           </div>
         </div>
       </div>
