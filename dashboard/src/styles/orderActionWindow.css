@@ -248,3 +248,14 @@
   .btn-grey[disabled] {
     opacity: 1;
   }
+
+  /* order type toggle in the header */
+  .header .market-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .order-type label {
+    margin-left: 12px;
+  }

@@ -7,7 +7,8 @@
     "dev": "concurrently -n backend,dashboard,frontend -c blue,green,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix dashboard\" \"npm run dev --prefix frontend\"",
     "install:all": "npm install && npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
     "test": "npm test --prefix backend",
-    "seed": "npm run seed --prefix backend"
+    "seed": "npm run seed --prefix backend",
+    "test:integration": "npm run test:integration --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

@@ -1,17 +1,27 @@
 import { Order } from "../models/order.model.js";
-import { placeOrder as fillOrder } from "../services/trading.service.js";
+import { getFunds } from "../services/funds.service.js";
+import { cancelOrder as cancel, placeOrder as place } from "../services/trading.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
+// Optional ?status=PENDING|FILLED|CANCELLED|EXPIRED filter, newest first.
 const getOrders = asyncHandler(async (req, res) => {
-  const orders = await Order.find({ user: req.userId }).sort({ _id: -1 });
+  const filter = { user: req.userId };
+  if (req.query.status) filter.status = req.query.status;
+
+  const orders = await Order.find(filter).sort({ _id: -1 });
   res.status(200).json(orders);
 });
 
-// Body is validated by the order validator: { name, qty, mode }. Any price
-// the client sends is ignored — orders fill at the server's market price.
+// Body is validated by placeOrderSchema. Responds with the order (FILLED, or
+// PENDING for a resting limit order) and the user's balances afterwards.
 const placeOrder = asyncHandler(async (req, res) => {
-  const { order, cash } = await fillOrder(req.userId, req.body);
-  res.status(201).json({ success: true, order, cash });
+  const order = await place(req.userId, req.body);
+  res.status(201).json({ success: true, order, funds: await getFunds(req.userId) });
 });
 
-export { getOrders, placeOrder };
+const cancelOrder = asyncHandler(async (req, res) => {
+  const order = await cancel(req.userId, req.params.id);
+  res.status(200).json({ success: true, order, funds: await getFunds(req.userId) });
+});
+
+export { cancelOrder, getOrders, placeOrder };

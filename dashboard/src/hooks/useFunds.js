@@ -3,23 +3,24 @@ import { useCallback, useState } from "react";
 import { api } from "../config/api";
 import { usePolling } from "./usePolling";
 
-// The logged-in user's cash balance, refreshed every `intervalMs`.
-// `cash` is null until the first response arrives.
+// The logged-in user's balances, refreshed every `intervalMs`:
+// { cash, reservedCash } — reservedCash is held for open limit buys.
+// null until the first response arrives.
 export function useFunds(intervalMs = 5000) {
-  const [cash, setCash] = useState(null);
+  const [funds, setFunds] = useState(null);
 
   const fetchFunds = useCallback(async () => {
     try {
       const res = await api.get("/funds");
-      setCash(res.data.cash);
+      setFunds(res.data);
     } catch {
-      // keep the last known balance on a transient failure
+      // keep the last known balances on a transient failure
     }
   }, []);
 
   usePolling(fetchFunds, intervalMs);
 
-  return cash;
+  return funds;
 }
 
 export const formatRupees = (value) =>

@@ -789,3 +789,60 @@ hr {
 .profile-dropdown button:hover {
   background: #fdf1f0;
 }
+
+/* orders: open / history tabs */
+
+.order-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.order-tabs button {
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  color: #666;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.order-tabs button.active {
+  color: #4184f3;
+  border-bottom-color: #4184f3;
+}
+
+.orders .order-error {
+  color: #e94040;
+  font-size: 0.8rem;
+}
+
+.cancel-order {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: #df514c;
+  background: none;
+  border: 1px solid #f1c4c2;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-order:hover:not(:disabled) {
+  background: #fdf1f0;
+}
+
+.cancel-order:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.order-table td.muted {
+  color: #aaa;
+}
+
+.reserved-note {
+  font-size: 0.7rem;
+  color: #999;
+}

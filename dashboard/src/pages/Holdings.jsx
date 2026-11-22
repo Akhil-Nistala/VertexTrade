@@ -78,7 +78,12 @@ const Holdings = () => {
                   return (
                     <tr key={stock._id} className={flashes[stock._id] || ""}>
                       <td>{stock.name}</td>
-                      <td>{stock.qty}</td>
+                      <td>
+                        {stock.qty}
+                        {stock.reservedQty > 0 && (
+                          <span className="reserved-note"> ({stock.reservedQty} reserved)</span>
+                        )}
+                      </td>
                       <td>{stock.avg.toFixed(2)}</td>
                       <td>{stock.price.toFixed(2)}</td>
                       <td>{curValue.toFixed(2)}</td>

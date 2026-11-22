@@ -3,6 +3,7 @@ import "dotenv/config";
 import app from "./app.js";
 import { connectDB } from "./config/db.js";
 import { openMarket } from "./data/market.js";
+import { expirePendingOrders } from "./services/matching.service.js";
 import { startPriceSimulator } from "./services/priceSimulator.js";
 
 const PORT = process.env.PORT || 3002;
@@ -16,6 +17,8 @@ const start = async () => {
   console.log(`MongoDB connected: ${host}`);
 
   await openMarket();
+  const expired = await expirePendingOrders();
+  if (expired > 0) console.log(`Expired ${expired} pending order(s) from the previous session`);
 
   app.listen(PORT, () => {
     console.log(`VertexTrade API listening on port ${PORT}`);

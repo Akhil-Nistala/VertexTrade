@@ -5,7 +5,8 @@ authenticated trading dashboard, and a REST API, built with React, Express,
 and MongoDB.
 
 Users sign up, get ₹1,00,000 of virtual cash and a starter portfolio, and
-place market orders that the server fills at live simulated prices. Each
+place market and limit orders that the server fills at live simulated
+prices. Each
 user's cash, holdings, positions, and orders are private to their account.
 
 ## Architecture
@@ -95,30 +96,44 @@ The three apps are independently runnable and deployable.
    it was set with.
 
 ### Trading
-- **Market orders filled by the server.** The client sends only symbol,
-  quantity, and side; the server fills at the stock's current price. A
-  client-sent price is ignored.
-- **Cash balance.** A buy is rejected with `400` if it costs more than the
-  available cash; a sell credits the proceeds.
-- **Race-safe updates.** The buy debits cash with a single conditional
-  update (`cash >= cost`), and the sell decrements the holding the same way
-  (`qty >= sold`), so two simultaneous orders can't overspend or oversell.
-  If saving the holding fails after a debit, the cash is refunded.
+- **Market orders** fill immediately at the server's current price. The
+  client never sends a fill price; one it does send is ignored.
+- **Limit orders** fill only at the limit price or better (at or below it
+  for a buy, at or above it for a sell). One the market already satisfies
+  fills immediately at the market price; otherwise it waits as `PENDING`
+  and the matcher fills it on the first price tick that reaches the limit.
+  Pending orders can be cancelled, and they expire when the market reopens
+  (when the server restarts).
+- **Reserved funds.** A pending buy moves `qty × limit` from `cash` into
+  `reservedCash`; a pending sell marks the shares as `reservedQty`. Market
+  orders can only use what isn't reserved, so you can't place two orders
+  against the same money or shares. On a fill below the limit, the unused
+  part of the reserve goes back to cash; cancelling or expiring releases it.
+- **Transactions.** Placing, filling, cancelling, and expiring each run in
+  one MongoDB transaction, so the order, the cash, and the holding change
+  together or not at all.
+- **Race-safe by construction.** Inside the transaction, every balance
+  change is a conditional update (`cash >= cost`, `available shares >=
+  qty`), and every order is closed with a conditional update on
+  `status: PENDING`. Two buys can't spend the same cash, and a fill racing a
+  cancel resolves to exactly one of them.
 - A **buy** opens a new holding or averages into an existing one
   (quantity-weighted average cost); a **sell** removes the holding when it
-  reaches zero. Rejected orders (unknown symbol, insufficient funds,
-  oversell) are never logged.
+  reaches zero. Rejected orders (unknown symbol, insufficient funds, not
+  enough available shares) are never logged.
 
 ### Live market
 - **One shared price per stock.** A `Stock` collection holds the market;
-  every 4 seconds the simulator moves each price by 0.05%–0.4% and copies it
-  onto every holding and position, so all users see the same prices.
+  every 4 seconds the simulator moves each price by 0.05%–0.4%, copies it
+  onto every holding and position (so all users see the same prices), and
+  then runs the limit-order matcher.
 - Day change is measured from the open price, set when the server starts.
 - The dashboard polls every 5 seconds; changed prices flash green or red.
 - **Live watchlist** with search, served from the API — the same prices
   orders fill at.
-- **Summary and Funds** show real cash, invested amount, holdings value, and
-  P&L.
+- **Orders page** with Open (pending, cancellable) and History tabs.
+- **Summary and Funds** show available and reserved cash, invested amount,
+  holdings value, and P&L; Holdings shows reserved shares.
 
 ### Backend quality
 - `app.js` / `server.js` split, so the app can be tested without a database
@@ -128,9 +143,14 @@ The three apps are independently runnable and deployable.
   logged and returned as a generic `500`.
 - Locked-down CORS (configured origins only, with credentials), 40kb
   request body limits, and a `/health` endpoint.
-- **39 API tests** (Jest + supertest) covering signup, login, sessions, cookie settings, the
-  auth guard, per-user data scoping, market-price fills, cash checks, atomic
-  buy/sell rules, the debit refund, and validation.
+- **63 unit tests** (Jest + supertest, models mocked) covering auth, cookie
+  settings, the auth guard, per-user scoping, validation, and every trading
+  path — asserting the exact conditional updates and that each write runs
+  inside the transaction.
+- **11 integration tests** against a real replica set proving what mocks
+  can't: concurrent buys and sells can't overspend or oversell, an order
+  fills exactly once even when settled twice at once or raced by a cancel,
+  and a failure mid-order rolls back every write.
 
 ## API
 
@@ -148,10 +168,11 @@ per-field `errors` for validation failures.
 | GET | `/api/v1/auth/me` | — | The logged-in user |
 | GET | `/api/v1/holdings` | — | The user's holdings |
 | GET | `/api/v1/positions` | — | The user's positions |
-| GET | `/api/v1/orders` | — | The user's orders, newest first |
-| POST | `/api/v1/orders` | `{ name, qty, mode }` | Market order: fills at the server's current price. `qty` a positive integer, `mode` `"BUY"` or `"SELL"`. `201` with `{ order, cash }`; `400` on invalid input, unknown symbol, insufficient funds, or selling more than is held |
+| GET | `/api/v1/orders?status=` | — | The user's orders, newest first. Optional `status`: `PENDING`, `FILLED`, `CANCELLED`, `EXPIRED` |
+| POST | `/api/v1/orders` | `{ name, qty, mode, type?, limitPrice? }` | `type` is `MARKET` (default) or `LIMIT`; `limitPrice` (≤ 2 decimals) is required for `LIMIT` and rejected for `MARKET`. `201` with `{ order, funds }` — the order is `FILLED`, or `PENDING` for a resting limit order. `400` on invalid input, unknown symbol, insufficient funds, or not enough available shares |
+| POST | `/api/v1/orders/:id/cancel` | — | Cancels a pending order and releases its reserve. `200` with `{ order, funds }`; `404` if it isn't yours; `409` if it's no longer pending |
 | GET | `/api/v1/stocks` | — | Market quotes: `{ symbol, price, day, isDown }` |
-| GET | `/api/v1/funds` | — | The user's cash balance: `{ cash }` |
+| GET | `/api/v1/funds` | — | The user's balances: `{ cash, reservedCash }` |
 
 ## Data models
 
@@ -160,11 +181,11 @@ reference.
 
 | Model | Fields | Notes |
 |---|---|---|
-| **User** | `name, email, passwordHash, cash, timestamps` | `email` is unique and lowercased; `cash` starts at ₹1,00,000 |
+| **User** | `name, email, passwordHash, cash, reservedCash, timestamps` | `email` is unique and lowercased; `cash` starts at ₹1,00,000; `reservedCash` is held for pending limit buys |
 | **Stock** | `symbol, price, open` | The market: one document per tradable symbol. Orders fill at `price`; day change is measured from `open` |
-| **Holding** | `user, name, qty, avg, price, net, day, isLoss` | One per symbol held. `avg` is the cost basis, `price` copied from the Stock, `net` = `(price − avg) / avg` |
+| **Holding** | `user, name, qty, reservedQty, avg, price, net, day, isLoss` | Unique per `{ user, name }`. `qty` includes `reservedQty` (shares held for pending limit sells). `avg` is the cost basis, `price` copied from the Stock, `net` = `(price − avg) / avg` |
 | **Position** | `user, product, name, qty, avg, price, net, day, isLoss` | Part of the starter portfolio; moved by the same simulator |
-| **Order** | `user, name, qty, price, mode, timestamps` | Log of every accepted order |
+| **Order** | `user, name, qty, mode, type, status, limitPrice, reserved, price, closedAt, timestamps` | `status`: `PENDING → FILLED / CANCELLED / EXPIRED` (market orders are created `FILLED`). `reserved` is the cash or shares held while pending; `price` is the actual fill price. Indexed on `{ status, name }` for the matcher |
 
 ## Project structure
 
@@ -183,26 +204,26 @@ VertexTrade/
 
 `app.js` builds the Express app (middleware, routes, error handling) and
 exports it without connecting to anything; `server.js` checks `JWT_SECRET`,
-connects to MongoDB, opens the market, starts listening, and starts the
-price simulator. Tests import `app.js`
-directly.
+connects to MongoDB (and checks it supports transactions), opens the
+market, expires the previous session's pending orders, starts listening,
+and starts the price simulator. Tests import `app.js` directly.
 
 ```
 backend/
 ├── src/
 │   ├── app.js                  # Express app: CORS, cookies, routes, error handler
-│   ├── server.js               # Entry point: connect DB, open market, listen, start simulator
+│   ├── server.js               # Entry point: connect DB, open market, expire stale orders, listen, simulate
 │   ├── seed.js                 # Resets the DB and creates the demo user
-│   ├── config/db.js            # MongoDB connection
+│   ├── config/db.js            # MongoDB connection + replica-set check
 │   ├── routes/                 # auth, holding, position, order, stock, funds routers
 │   ├── controllers/            # Request handlers
 │   ├── middleware/             # requireAuth, zod validation, 404 + error handler
 │   ├── validators/             # zod schemas for auth and orders
 │   ├── models/                 # user, stock, holding, position, order
-│   ├── services/               # trading (market fills, cash, cost basis), price simulator
-│   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers, money
+│   ├── services/               # trading (place/settle/cancel), matching, funds, price simulator
+│   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers, money, transaction
 │   └── data/                   # market.js (stock universe), samplePortfolio.js
-└── tests/                      # Jest + supertest, models mocked (no DB needed)
+└── tests/                      # unit tests (models mocked) + integration/ (real replica set)
 ```
 
 ### Frontends
@@ -230,7 +251,20 @@ frontend/src/
 
 ## Getting started
 
-**Prerequisites:** Node.js 18+ and a MongoDB instance (local or Atlas).
+**Prerequisites:** Node.js 18+ and MongoDB running as a **replica set** —
+orders use transactions, which a standalone `mongod` doesn't support. Atlas
+is always a replica set. For a local MongoDB, a single-node replica set is
+enough:
+
+- **Windows service:** in `mongod.cfg` (e.g.
+  `C:\Program Files\MongoDB\Server\8.2\bin\mongod.cfg`), replace
+  `#replication:` with `replication:` and `  replSetName: rs0`, then run
+  `Restart-Service MongoDB` in an Administrator PowerShell.
+- **macOS / Linux:** start `mongod` with `--replSet rs0` (or add the same
+  `replication` block to its config).
+- **Then, once:** `mongosh --eval 'rs.initiate()'`.
+
+The server refuses to start against a standalone MongoDB and says why.
 
 ```
 cp backend/.env.example backend/.env   # set MONGO_URL and JWT_SECRET (see below)
@@ -259,8 +293,13 @@ Password: demo1234
 ### Tests
 
 ```
-npm test                    # backend API tests — no database required
+npm test                    # unit tests — no database required
+npm run test:integration    # needs a replica set; uses vertextrade_test (wiped each test)
 ```
+
+The integration tests read `TEST_MONGO_URL` (default
+`mongodb://127.0.0.1:27017/vertextrade_test`) and refuse to run against a
+database whose name doesn't end in `_test`.
 
 ### Environment variables
 
@@ -321,15 +360,16 @@ Render's free plan sleeps after inactivity, so the first request can take
   password reset. If the API were called cross-site
   instead of through the proxy, the cookie would need `SameSite=None; Secure`
   plus CSRF protection.
-- **Transactions** — the cash and holding updates are each atomic, with a
-  refund if the second step fails, but they aren't wrapped in one MongoDB
-  transaction (that needs a replica set). Averaging into an existing
-  holding is read-then-write, so two simultaneous buys of the same symbol
-  could leave the average cost slightly off (cash stays correct).
+- **Order types** — market and day limit orders only: no stop-loss, no
+  good-till-cancelled, no partial fills (any quantity fills at once in the
+  simulated market).
+- **Single matcher** — matching runs inside the API process. Several
+  instances would each run it; the conditional claim keeps fills correct,
+  but a real system would run one dedicated matching worker.
 - **Money as floats** — cash and prices are rupee floats rounded to paise;
   integer paise would avoid floating-point drift entirely.
 - **Simulated market** — prices are random walks, not real market data.
-  Adding or withdrawing funds, limit orders, and margin aren't supported.
+  Adding or withdrawing funds and margin aren't supported.
 - **Frontend tests and CI** — the API is tested; the React apps are not yet.
 
 ## Disclaimer

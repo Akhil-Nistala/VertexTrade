@@ -10,6 +10,9 @@ const userSchema = new Schema(
     passwordHash: { type: String, required: true },
     // Spendable balance in rupees. Debited on buys, credited on sells.
     cash: { type: Number, default: STARTING_CASH, min: 0 },
+    // Rupees set aside for pending limit buys — moved out of `cash` when the
+    // order is placed, and back (or spent) when it's cancelled (or filled).
+    reservedCash: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );

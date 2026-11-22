@@ -1,7 +1,10 @@
 // The tradable universe and its starting prices. On startup the server makes
 // sure every symbol exists in the Stock collection and "opens the market" by
-// setting each stock's open price to its current price.
+// setting each stock's open price to its current price. It also fills in
+// fields added after older documents were written.
 
+import { Holding } from "../models/holding.model.js";
+import { Order } from "../models/order.model.js";
 import { Stock } from "../models/stock.model.js";
 import { STARTING_CASH, User } from "../models/user.model.js";
 
@@ -41,6 +44,11 @@ export const openMarket = async () => {
   // A new trading day starts when the server does.
   await Stock.updateMany({}, [{ $set: { open: "$price" } }]);
 
-  // Accounts created before balances existed get the starting cash.
+  // Documents written before balances and limit orders existed.
   await User.updateMany({ cash: { $exists: false } }, { $set: { cash: STARTING_CASH } });
+  await User.updateMany({ reservedCash: { $exists: false } }, { $set: { reservedCash: 0 } });
+  await Holding.updateMany({ reservedQty: { $exists: false } }, { $set: { reservedQty: 0 } });
+  await Order.updateMany({ status: { $exists: false } }, [
+    { $set: { type: "MARKET", status: "FILLED", closedAt: "$createdAt" } },
+  ]);
 };

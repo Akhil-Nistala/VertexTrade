@@ -6,10 +6,10 @@ import { formatRupees, useFunds } from "../hooks/useFunds";
 
 const STARTING_CASH = 100000;
 
-// Real balance from the API; invested and current value are computed from
+// Real balances from the API; invested and current value are computed from
 // the user's holdings. Adding or withdrawing funds isn't supported.
 const Funds = () => {
-  const cash = useFunds();
+  const funds = useFunds();
   const [holdings, setHoldings] = useState([]);
 
   const fetchHoldings = useCallback(async () => {
@@ -25,7 +25,7 @@ const Funds = () => {
 
   const invested = holdings.reduce((sum, h) => sum + h.avg * h.qty, 0);
   const currentValue = holdings.reduce((sum, h) => sum + h.price * h.qty, 0);
-  const accountValue = cash == null ? null : cash + currentValue;
+  const accountValue = funds == null ? null : funds.cash + funds.reservedCash + currentValue;
 
   return (
     <>
@@ -42,7 +42,11 @@ const Funds = () => {
           <div className="table">
             <div className="data">
               <p>Available cash</p>
-              <p className="imp colored">{formatRupees(cash)}</p>
+              <p className="imp colored">{formatRupees(funds?.cash)}</p>
+            </div>
+            <div className="data">
+              <p>Reserved for open orders</p>
+              <p className="imp">{formatRupees(funds?.reservedCash)}</p>
             </div>
             <div className="data">
               <p>Invested</p>

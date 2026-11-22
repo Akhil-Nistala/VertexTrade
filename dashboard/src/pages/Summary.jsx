@@ -10,7 +10,7 @@ const inThousands = (value) => (value == null ? "—" : `${(value / 1000).toFixe
 
 const Summary = () => {
   const { user } = useAuth();
-  const cash = useFunds();
+  const funds = useFunds();
   const [holdings, setHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,7 +50,7 @@ const Summary = () => {
 
         <div className="data">
           <div className="first">
-            <h3>{inThousands(cash)}</h3>
+            <h3>{inThousands(funds?.cash)}</h3>
             <p>Cash available</p>
           </div>
           <hr />
@@ -60,7 +60,8 @@ const Summary = () => {
               Invested <span>{inThousands(totalInvestment)}</span>{" "}
             </p>
             <p>
-              Account value <span>{cash == null ? "—" : inThousands(cash + currentValue)}</span>{" "}
+              Account value{" "}
+              <span>{funds == null ? "—" : inThousands(funds.cash + funds.reservedCash + currentValue)}</span>{" "}
             </p>
           </div>
         </div>

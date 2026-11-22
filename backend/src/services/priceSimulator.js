@@ -1,13 +1,14 @@
 // Lightweight "live market": every few seconds, move each stock's price by a
-// small bounded random percentage, then copy the new prices onto every
-// holding and position so all users see the same market. Errors are
-// swallowed — a missed tick is harmless.
+// small bounded random percentage, copy the new prices onto every holding and
+// position so all users see the same market, then fill any limit orders the
+// new prices satisfy. A failed tick is logged and the next one carries on.
 
 import { Stock } from "../models/stock.model.js";
 import { Holding } from "../models/holding.model.js";
 import { Position } from "../models/position.model.js";
 import { formatPercent } from "../utils/formatPercent.js";
 import { percentChange, roundMoney } from "../utils/money.js";
+import { matchOrders } from "./matching.service.js";
 
 const TICK_INTERVAL_MS = 4000;
 const MIN_MOVE_PERCENT = 0.05;
@@ -64,9 +65,21 @@ const syncToQuotes = async (Model, quotes) => {
 const tick = async () => {
   const quotes = await tickStocks();
   await Promise.all([syncToQuotes(Holding, quotes), syncToQuotes(Position, quotes)]);
+  await matchOrders(quotes);
 };
 
-export const startPriceSimulator = () =>
-  setInterval(() => {
-    tick().catch(() => {});
-  }, TICK_INTERVAL_MS);
+// Each tick is scheduled only after the previous one finishes, so a slow tick
+// (many orders to match) never overlaps the next. Returns a stop function.
+export const startPriceSimulator = () => {
+  let timer;
+  const loop = async () => {
+    try {
+      await tick();
+    } catch (err) {
+      console.error("Price tick failed:", err.message);
+    }
+    timer = setTimeout(loop, TICK_INTERVAL_MS);
+  };
+  timer = setTimeout(loop, TICK_INTERVAL_MS);
+  return () => clearTimeout(timer);
+};
