@@ -130,8 +130,8 @@ const OrderActionWindow = ({ uid, mode }) => {
               <legend>Limit price</legend>
               <input
                 type="number"
-                min="0.05"
-                step="0.05"
+                min="0.01"
+                step="0.01"
                 value={limitPrice}
                 onChange={(e) => setLimitPrice(e.target.value)}
               />

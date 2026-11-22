@@ -114,7 +114,7 @@ VertexTrade/
 ## 5. Backend, file by file
 
 ### Entry points
-- **`src/app.js`** — creates the Express app; registers CORS (origin whitelist from `CLIENT_ORIGINS`, `credentials: true`), `cookie-parser`, `express.json` and `express.urlencoded` (40kb limits), `GET /health`, the four routers under `/api/v1/...`, then the 404 handler and error handler. **Exports the app without listening** — that's what makes it testable.
+- **`src/app.js`** — creates the Express app; registers CORS (origin whitelist from `CLIENT_ORIGINS`, `credentials: true`), `cookie-parser`, `express.json` and `express.urlencoded` (40kb limits), `GET /health`, the six routers under `/api/v1/...` (auth, holdings, positions, orders, stocks, funds), then the 404 handler and error handler. **Exports the app without listening** — that's what makes it testable.
 - **`src/server.js`** — fails fast if `JWT_SECRET` is missing, connects MongoDB via `connectDB(MONGO_URL)` (which also fails fast on a standalone server — transactions need a replica set), runs `openMarket()`, expires the previous session's pending orders (`expirePendingOrders()`), calls `app.listen`, then `startPriceSimulator()`. Any startup error → log and `process.exit(1)`.
 - **`src/seed.js`** — connects, deletes all users/holdings/positions/orders/stocks, re-opens the market, creates `demo@vertextrade.dev / demo1234` with a bcrypt hash, gives it the starter portfolio, disconnects.
 
@@ -405,7 +405,7 @@ It clears the cookie. The JWT itself stays valid until expiry — if someone cop
 Quantity-weighted mean: `(oldAvg × oldQty + price × newQty) / (oldQty + newQty)`. Two shares at 100 plus two at 200 → four at 150. Selling doesn't change average cost, only quantity.
 
 **What happens if I try to sell more than I own?**
-The conditional update `{ qty: { $gte: 5 } }` matches nothing, so the service throws `ApiError(400, "Cannot sell 5 ITC — you only hold 1.")`. No cash is credited and no order is logged, because both happen only after the decrement succeeds.
+The conditional update (available shares `qty − reservedQty ≥ 5`, via `$expr`) matches nothing, so the service throws `ApiError(400, "Cannot sell 5 ITC — you have 1 available.")` — adding how many more are reserved for open sell orders, if any. No cash is credited and no order is logged, because both happen only after the decrement succeeds.
 
 **What stops a user buying at a fake price?**
 The order body has no price. The server looks up the symbol in the `stocks` collection and fills at that price; if a client sends `price`, zod strips it. A test sends `price: 1` and asserts the fill is at the market price.
@@ -450,7 +450,7 @@ So tests can import the app and send it requests with supertest without connecti
 Express 4 doesn't catch rejected promises from async handlers; the request would hang. `asyncHandler` catches the rejection and calls `next(err)`, so the error handler responds.
 
 **How is "real-time" implemented?**
-A server-side `setInterval` changes prices every 4 seconds; the dashboard polls every 5 seconds and flashes rows whose price changed. It's polling, not push.
+A server-side loop changes prices every 4 seconds (each tick scheduled with `setTimeout` after the previous one finishes, then the limit-order matcher runs); the dashboard polls every 5 seconds and flashes rows whose price changed. It's polling, not push.
 
 **How would you make it truly real-time?**
 Socket.IO: the server emits price updates per symbol to subscribed clients after each tick; the client updates state on each event. Authenticate the socket handshake with the same cookie.
