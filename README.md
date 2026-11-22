@@ -17,10 +17,15 @@ user's cash, holdings, positions, and orders are private to their account.
           │                                 │                                 │
           │  Login / Signup links  ───────▶ │                                 │
           │                                 │  HTTP + httpOnly JWT cookie ──▶ │ ──▶ MongoDB
-          │                                 │  (polls every 5s)               │
+          │                                 │  (polls every 5s)               │     users, stocks, holdings,
+          │                                 │                                 │     positions, orders
+          │                                 │                                 │
           │                                 │                                 │ price simulator
-          │                                 │                                 │ (ticks every 4s)
+          │                                 │                                 │ (moves stocks every 4s)
 ```
+
+In production the dashboard reaches the API through a Vercel proxy on its
+own domain — see [Deployment](#deployment).
 
 - **frontend/** — static marketing pages (home, products, pricing, about,
   support). Login and Signup hand off to the dashboard.
@@ -50,8 +55,9 @@ The three apps are independently runnable and deployable.
 ### Authentication
 - Email/password signup and login. Passwords are hashed with **bcrypt**;
   only the hash is stored.
-- The API issues a signed **JWT (7-day expiry) in an httpOnly, SameSite=Lax
-  cookie**, so page JavaScript never sees the token.
+- The API issues a signed **JWT (7-day expiry) in an httpOnly cookie**, so
+  page JavaScript never sees the token. The cookie is `SameSite=Lax` locally
+  and behind the production proxy, and `Secure` (HTTPS-only) in production.
 - Every data route runs `requireAuth`, and every query is filtered by the
   user id **from the token** — never from client input — so users can only
   see and trade against their own portfolio.
@@ -63,6 +69,30 @@ The three apps are independently runnable and deployable.
   comes back `401`.
 - New accounts start with **₹1,00,000 of virtual cash** and a sample
   portfolio, so the dashboard isn't empty.
+
+### How authentication works
+
+1. **Signup / login** — the request body is validated with zod (email
+   trimmed and lowercased, password ≥ 8 characters on signup). Signup stores
+   `bcrypt.hash(password, 10)`; login runs `bcrypt.compare`.
+2. **Token** — on success the API signs a JWT with `JWT_SECRET` (HS256)
+   whose payload is just `{ sub: userId }`, expiring in 7 days. The payload
+   is signed, not encrypted, so it holds no secrets.
+3. **Cookie** — the token is set as the `token` cookie: `httpOnly`,
+   `SameSite` from `COOKIE_SAMESITE` (`lax` locally), `Secure` in
+   production, 7-day `maxAge`. The dashboard's axios client uses
+   `withCredentials`, so the browser sends it automatically.
+4. **Every request** — `requireAuth` reads the cookie, runs `jwt.verify`
+   (signature + expiry), and sets `req.userId`. Missing → `401 Not logged
+   in`; invalid or expired → `401 Session expired`. Controllers only ever
+   query with `req.userId`.
+5. **Session restore** — the page can't read an httpOnly cookie, so on load
+   the dashboard calls `GET /api/v1/auth/me`. `withAuth` shows a loading
+   state until it answers, then renders the page or redirects to `/login`
+   (remembering where the user was going).
+6. **Expiry and logout** — an axios interceptor treats any `401` as logged
+   out. `POST /api/v1/auth/logout` clears the cookie with the same options
+   it was set with.
 
 ### Trading
 - **Market orders filled by the server.** The client sends only symbol,
@@ -96,8 +126,8 @@ The three apps are independently runnable and deployable.
 - Central error handling: errors thrown anywhere — including inside async
   handlers — return `{ success: false, message }`; unexpected errors are
   logged and returned as a generic `500`.
-- Locked-down CORS (configured origins only, with credentials) and a
-  `/health` endpoint.
+- Locked-down CORS (configured origins only, with credentials), 40kb
+  request body limits, and a `/health` endpoint.
 - **39 API tests** (Jest + supertest) covering signup, login, sessions, cookie settings, the
   auth guard, per-user data scoping, market-price fills, cash checks, atomic
   buy/sell rules, the debit refund, and validation.
@@ -138,11 +168,23 @@ reference.
 
 ## Project structure
 
+```
+VertexTrade/
+├── package.json        # root scripts: dev (all apps), install:all, test, seed
+├── render.yaml         # Render blueprint for the API
+├── INTERVIEW_PREP.md   # walkthrough of every file, flow, and design decision
+├── LICENSE
+├── backend/            # Express API
+├── dashboard/          # trading app (+ vercel.json: /api proxy)
+└── frontend/           # marketing site (+ vercel.json)
+```
+
 ### Backend
 
 `app.js` builds the Express app (middleware, routes, error handling) and
-exports it without connecting to anything; `server.js` connects to MongoDB,
-starts listening, and starts the price simulator. Tests import `app.js`
+exports it without connecting to anything; `server.js` checks `JWT_SECRET`,
+connects to MongoDB, opens the market, starts listening, and starts the
+price simulator. Tests import `app.js`
 directly.
 
 ```
@@ -191,10 +233,16 @@ frontend/src/
 **Prerequisites:** Node.js 18+ and a MongoDB instance (local or Atlas).
 
 ```
-cp backend/.env.example backend/.env   # set MONGO_URL and JWT_SECRET
+cp backend/.env.example backend/.env   # set MONGO_URL and JWT_SECRET (see below)
 npm run install:all                    # installs root + all three apps
 npm run seed                           # optional — WIPES the database and creates the demo user
 npm run dev                            # starts backend :3002, dashboard :5174, frontend :5173
+```
+
+Generate a `JWT_SECRET` with:
+
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
 Each app can also be run on its own with `npm run dev` inside its folder
@@ -266,13 +314,18 @@ Render's free plan sleeps after inactivity, so the first request can take
 
 ## Known limitations and roadmap
 
-- **Auth hardening** — rate limiting on login, email verification, password
-  reset, and refresh-token rotation. If the API were called cross-site
+- **Token revocation** — a JWT stays valid until it expires; logout only
+  clears the cookie in that browser. Refresh-token rotation or a server-side
+  denylist would allow revoking sessions.
+- **Auth hardening** — rate limiting on login, email verification, and
+  password reset. If the API were called cross-site
   instead of through the proxy, the cookie would need `SameSite=None; Secure`
   plus CSRF protection.
 - **Transactions** — the cash and holding updates are each atomic, with a
   refund if the second step fails, but they aren't wrapped in one MongoDB
-  transaction (that needs a replica set).
+  transaction (that needs a replica set). Averaging into an existing
+  holding is read-then-write, so two simultaneous buys of the same symbol
+  could leave the average cost slightly off (cash stays correct).
 - **Money as floats** — cash and prices are rupee floats rounded to paise;
   integer paise would avoid floating-point drift entirely.
 - **Simulated market** — prices are random walks, not real market data.
