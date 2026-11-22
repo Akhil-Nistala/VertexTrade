@@ -7,7 +7,9 @@ import { newOrderSchema } from "../validators/order.validator.js";
 
 const router = Router();
 
-router.get("/allOrders", requireAuth, getOrders);
-router.post("/newOrder", requireAuth, validate(newOrderSchema), placeOrder);
+router.use(requireAuth);
+
+router.get("/", getOrders);
+router.post("/", validate(newOrderSchema), placeOrder);
 
 export default router;

@@ -9,7 +9,7 @@ const Orders = () => {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const res = await api.get("/allOrders");
+      const res = await api.get("/orders");
       setOrders(res.data);
     } catch {
       // keep the last known orders on a transient fetch failure

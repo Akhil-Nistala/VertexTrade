@@ -27,13 +27,13 @@ const USER_ID = "64b000000000000000000001";
 
 beforeEach(() => jest.clearAllMocks());
 
-describe("POST /auth/signup", () => {
+describe("POST /api/v1/auth/signup", () => {
   it("creates the user, gives a starter portfolio, and sets an httpOnly session cookie", async () => {
     mockUser.exists.mockResolvedValue(null);
     mockUser.create.mockResolvedValue({ _id: USER_ID, name: "Alice", email: "alice@example.com" });
 
     const res = await request(app)
-      .post("/auth/signup")
+      .post("/api/v1/auth/signup")
       .send({ name: " Alice ", email: " Alice@Example.com ", password: "password123" });
 
     expect(res.status).toBe(201);
@@ -56,7 +56,7 @@ describe("POST /auth/signup", () => {
     mockUser.exists.mockResolvedValue({ _id: USER_ID });
 
     const res = await request(app)
-      .post("/auth/signup")
+      .post("/api/v1/auth/signup")
       .send({ name: "Alice", email: "alice@example.com", password: "password123" });
 
     expect(res.status).toBe(409);
@@ -65,7 +65,7 @@ describe("POST /auth/signup", () => {
 
   it("rejects a short password with 400", async () => {
     const res = await request(app)
-      .post("/auth/signup")
+      .post("/api/v1/auth/signup")
       .send({ name: "Alice", email: "alice@example.com", password: "short" });
 
     expect(res.status).toBe(400);
@@ -74,7 +74,7 @@ describe("POST /auth/signup", () => {
 
   it("rejects an invalid email with 400", async () => {
     const res = await request(app)
-      .post("/auth/signup")
+      .post("/api/v1/auth/signup")
       .send({ name: "Alice", email: "not-an-email", password: "password123" });
 
     expect(res.status).toBe(400);
@@ -82,14 +82,14 @@ describe("POST /auth/signup", () => {
   });
 });
 
-describe("POST /auth/login", () => {
+describe("POST /api/v1/auth/login", () => {
   const passwordHash = bcrypt.hashSync("password123", 4);
 
   it("logs in with correct credentials and sets the session cookie", async () => {
     mockUser.findOne.mockResolvedValue({ _id: USER_ID, name: "Alice", email: "alice@example.com", passwordHash });
 
     const res = await request(app)
-      .post("/auth/login")
+      .post("/api/v1/auth/login")
       .send({ email: "ALICE@example.com", password: "password123" });
 
     expect(res.status).toBe(200);
@@ -100,12 +100,12 @@ describe("POST /auth/login", () => {
   it("gives the same 401 for a wrong password and an unknown email", async () => {
     mockUser.findOne.mockResolvedValueOnce({ _id: USER_ID, passwordHash });
     const wrongPassword = await request(app)
-      .post("/auth/login")
+      .post("/api/v1/auth/login")
       .send({ email: "alice@example.com", password: "wrong-password" });
 
     mockUser.findOne.mockResolvedValueOnce(null);
     const unknownEmail = await request(app)
-      .post("/auth/login")
+      .post("/api/v1/auth/login")
       .send({ email: "nobody@example.com", password: "password123" });
 
     expect(wrongPassword.status).toBe(401);
@@ -115,9 +115,9 @@ describe("POST /auth/login", () => {
   });
 });
 
-describe("GET /auth/me", () => {
+describe("GET /api/v1/auth/me", () => {
   it("returns 401 without a session cookie", async () => {
-    const res = await request(app).get("/auth/me");
+    const res = await request(app).get("/api/v1/auth/me");
     expect(res.status).toBe(401);
   });
 
@@ -125,7 +125,7 @@ describe("GET /auth/me", () => {
     mockUser.findById.mockResolvedValue({ _id: USER_ID, name: "Alice", email: "alice@example.com" });
     const token = signSessionToken({ _id: USER_ID });
 
-    const res = await request(app).get("/auth/me").set("Cookie", `token=${token}`);
+    const res = await request(app).get("/api/v1/auth/me").set("Cookie", `token=${token}`);
 
     expect(res.status).toBe(200);
     expect(mockUser.findById).toHaveBeenCalledWith(USER_ID);
@@ -134,14 +134,14 @@ describe("GET /auth/me", () => {
 
   it("rejects a tampered token", async () => {
     const token = signSessionToken({ _id: USER_ID }) + "x";
-    const res = await request(app).get("/auth/me").set("Cookie", `token=${token}`);
+    const res = await request(app).get("/api/v1/auth/me").set("Cookie", `token=${token}`);
     expect(res.status).toBe(401);
   });
 });
 
-describe("POST /auth/logout", () => {
+describe("POST /api/v1/auth/logout", () => {
   it("clears the session cookie", async () => {
-    const res = await request(app).post("/auth/logout");
+    const res = await request(app).post("/api/v1/auth/logout");
     expect(res.status).toBe(200);
     expect(sessionCookieFrom(res)).toMatch(/token=;/);
   });

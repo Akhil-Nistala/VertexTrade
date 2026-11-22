@@ -21,10 +21,10 @@ beforeEach(() => jest.clearAllMocks());
 
 describe("auth guard", () => {
   it.each([
-    ["get", "/allHoldings"],
-    ["get", "/allPositions"],
-    ["get", "/allOrders"],
-    ["post", "/newOrder"],
+    ["get", "/api/v1/holdings"],
+    ["get", "/api/v1/positions"],
+    ["get", "/api/v1/orders"],
+    ["post", "/api/v1/orders"],
   ])("%s %s returns 401 without a session", async (method, path) => {
     const res = await request(app)[method](path);
     expect(res.status).toBe(401);
@@ -32,42 +32,42 @@ describe("auth guard", () => {
 });
 
 describe("data is scoped to the logged-in user", () => {
-  it("GET /allHoldings queries only this user's holdings", async () => {
+  it("GET /api/v1/holdings queries only this user's holdings", async () => {
     mockHolding.find.mockResolvedValue([{ name: "INFY" }]);
 
-    const res = await request(app).get("/allHoldings").set("Cookie", authCookie);
+    const res = await request(app).get("/api/v1/holdings").set("Cookie", authCookie);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual([{ name: "INFY" }]);
     expect(mockHolding.find).toHaveBeenCalledWith({ user: USER_ID });
   });
 
-  it("GET /allPositions queries only this user's positions", async () => {
+  it("GET /api/v1/positions queries only this user's positions", async () => {
     mockPosition.find.mockResolvedValue([]);
-    await request(app).get("/allPositions").set("Cookie", authCookie);
+    await request(app).get("/api/v1/positions").set("Cookie", authCookie);
     expect(mockPosition.find).toHaveBeenCalledWith({ user: USER_ID });
   });
 
-  it("GET /allOrders queries only this user's orders, newest first", async () => {
+  it("GET /api/v1/orders queries only this user's orders, newest first", async () => {
     const sort = jest.fn().mockResolvedValue([]);
     mockOrder.find.mockReturnValue({ sort });
 
-    await request(app).get("/allOrders").set("Cookie", authCookie);
+    await request(app).get("/api/v1/orders").set("Cookie", authCookie);
 
     expect(mockOrder.find).toHaveBeenCalledWith({ user: USER_ID });
     expect(sort).toHaveBeenCalledWith({ _id: -1 });
   });
 });
 
-describe("POST /newOrder", () => {
-  const placeOrder = (body) => request(app).post("/newOrder").set("Cookie", authCookie).send(body);
+describe("POST /api/v1/orders", () => {
+  const placeOrder = (body) => request(app).post("/api/v1/orders").set("Cookie", authCookie).send(body);
 
   it("opens a new holding on a BUY and logs the order", async () => {
     mockHolding.findOne.mockResolvedValue(null);
 
     const res = await placeOrder({ name: " ZOMATO ", qty: 3, price: 200, mode: "BUY" });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(mockHolding.findOne).toHaveBeenCalledWith({ user: USER_ID, name: "ZOMATO" });
     expect(mockHolding.create).toHaveBeenCalledWith(
       expect.objectContaining({ user: USER_ID, name: "ZOMATO", qty: 3, avg: 200 })
@@ -107,7 +107,7 @@ describe("POST /newOrder", () => {
 
     const res = await placeOrder({ name: "ITC", qty: 2, price: 200, mode: "SELL" });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(mockHolding.deleteOne).toHaveBeenCalledWith({ _id: "h1" });
   });
 

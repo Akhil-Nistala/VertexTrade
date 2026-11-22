@@ -12,7 +12,7 @@ const Positions = () => {
 
   const fetchPositions = useCallback(async () => {
     try {
-      const res = await api.get("/allPositions");
+      const res = await api.get("/positions");
       setPositions(res.data);
     } catch {
       // keep the last known positions on a transient fetch failure

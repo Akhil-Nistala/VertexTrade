@@ -4,7 +4,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 
 import authRoutes from "./routes/auth.routes.js";
-import portfolioRoutes from "./routes/portfolio.routes.js";
+import holdingRoutes from "./routes/holding.routes.js";
+import positionRoutes from "./routes/position.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
@@ -21,12 +22,14 @@ const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || "http://localhost:5173,htt
 app.use(cors({ origin: CLIENT_ORIGINS, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: "40kb" }));
+app.use(express.urlencoded({ limit: "40kb", extended: true }));
 
 app.get("/health", (req, res) => res.status(200).json({ success: true, status: "ok" }));
 
-app.use("/auth", authRoutes);
-app.use(portfolioRoutes);
-app.use(orderRoutes);
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/holdings", holdingRoutes);
+app.use("/api/v1/positions", positionRoutes);
+app.use("/api/v1/orders", orderRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

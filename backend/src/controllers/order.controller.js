@@ -18,9 +18,9 @@ const placeOrder = asyncHandler(async (req, res) => {
     await applySell(req.userId, name, qty);
   }
 
-  await Order.create({ user: req.userId, name, qty, price, mode });
+  const order = await Order.create({ user: req.userId, name, qty, price, mode });
 
-  res.status(200).json({ message: "Order saved!" });
+  res.status(201).json({ success: true, order });
 });
 
 export { getOrders, placeOrder };

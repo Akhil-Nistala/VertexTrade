@@ -93,22 +93,22 @@ The three apps are independently runnable and deployable.
 
 ## API
 
-All routes except `/health` and signup/login/logout require the auth cookie
-and return `401` without it. Errors are returned as
-`{ success: false, message }`, with per-field `errors` for validation
-failures.
+Resource-oriented and versioned under `/api/v1`. All routes except
+`/health` and signup/login/logout require the auth cookie and return `401`
+without it. Errors are returned as `{ success: false, message }`, with
+per-field `errors` for validation failures.
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| POST | `/auth/signup` | `{ name, email, password }` | Password ≥ 8 characters. Creates the user and their starter portfolio, sets the auth cookie. `409` if the email is taken |
-| POST | `/auth/login` | `{ email, password }` | Sets the auth cookie. `401` with a generic message on bad credentials |
-| POST | `/auth/logout` | — | Clears the auth cookie |
-| GET | `/auth/me` | — | The logged-in user |
 | GET | `/health` | — | Liveness check |
-| GET | `/allHoldings` | — | The user's holdings |
-| GET | `/allPositions` | — | The user's positions |
-| GET | `/allOrders` | — | The user's orders, newest first |
-| POST | `/newOrder` | `{ name, qty, price, mode }` | `qty` a positive integer, `price` a positive number, `mode` `"BUY"` or `"SELL"`. `400` on invalid input or when selling more than is held |
+| POST | `/api/v1/auth/signup` | `{ name, email, password }` | Password ≥ 8 characters. Creates the user and their starter portfolio, sets the auth cookie. `201`; `409` if the email is taken |
+| POST | `/api/v1/auth/login` | `{ email, password }` | Sets the auth cookie. `401` with a generic message on bad credentials |
+| POST | `/api/v1/auth/logout` | — | Clears the auth cookie |
+| GET | `/api/v1/auth/me` | — | The logged-in user |
+| GET | `/api/v1/holdings` | — | The user's holdings |
+| GET | `/api/v1/positions` | — | The user's positions |
+| GET | `/api/v1/orders` | — | The user's orders, newest first |
+| POST | `/api/v1/orders` | `{ name, qty, price, mode }` | Places an order. `qty` a positive integer, `price` a positive number, `mode` `"BUY"` or `"SELL"`. `201` with the created order; `400` on invalid input or when selling more than is held |
 
 ## Data models
 
@@ -138,7 +138,7 @@ backend/
 │   ├── server.js               # Entry point: connect DB, listen, start simulator
 │   ├── seed.js                 # Resets the DB and creates the demo user
 │   ├── config/db.js            # MongoDB connection
-│   ├── routes/                 # auth, portfolio, order routers
+│   ├── routes/                 # auth, holding, position, order routers
 │   ├── controllers/            # Request handlers
 │   ├── middleware/             # requireAuth, zod validation, 404 + error handler
 │   ├── validators/             # zod schemas for auth and orders
@@ -177,28 +177,15 @@ frontend/src/
 
 **Prerequisites:** Node.js 18+ and a MongoDB instance (local or Atlas).
 
-1. **Backend**
-   ```
-   cd backend
-   cp .env.example .env      # set MONGO_URL and JWT_SECRET
-   npm install
-   npm run seed              # optional — WIPES the database and creates the demo user
-   npm run dev               # :3002, auto-reloads (npm start runs without)
-   ```
+```
+cp backend/.env.example backend/.env   # set MONGO_URL and JWT_SECRET
+npm run install:all                    # installs root + all three apps
+npm run seed                           # optional — WIPES the database and creates the demo user
+npm run dev                            # starts backend :3002, dashboard :5174, frontend :5173
+```
 
-2. **Dashboard**
-   ```
-   cd dashboard
-   npm install
-   npm run dev               # :5174
-   ```
-
-3. **Marketing site**
-   ```
-   cd frontend
-   npm install
-   npm run dev               # :5173
-   ```
+Each app can also be run on its own with `npm run dev` inside its folder
+(the backend also has `npm start`, without auto-reload).
 
 Open `http://localhost:5174` and sign up, or log in with the demo account
 created by the seed script:
@@ -211,8 +198,7 @@ Password: demo1234
 ### Tests
 
 ```
-cd backend
-npm test                    # no database required
+npm test                    # backend API tests — no database required
 ```
 
 ### Environment variables
@@ -248,3 +234,7 @@ Each app has a `.env.example`. The Vite apps work with their defaults locally.
 VertexTrade is an independent demo/portfolio project, not a real trading
 platform. It is not affiliated with any broker, and no real money, orders,
 or market data are involved.
+
+## License
+
+[MIT](LICENSE)

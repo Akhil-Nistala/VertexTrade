@@ -1,0 +1,15 @@
+{
+  "name": "vertextrade",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -n backend,dashboard,frontend -c blue,green,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix dashboard\" \"npm run dev --prefix frontend\"",
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix dashboard && npm install --prefix frontend",
+    "test": "npm test --prefix backend",
+    "seed": "npm run seed --prefix backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

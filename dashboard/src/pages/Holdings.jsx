@@ -13,7 +13,7 @@ const Holdings = () => {
 
   const fetchHoldings = useCallback(async () => {
     try {
-      const res = await api.get("/allHoldings");
+      const res = await api.get("/holdings");
       setAllHoldings(res.data);
     } catch {
       // keep the last known holdings on a transient fetch failure

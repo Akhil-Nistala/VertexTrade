@@ -15,7 +15,7 @@ const Summary = () => {
 
   const fetchHoldings = useCallback(async () => {
     try {
-      const res = await api.get("/allHoldings");
+      const res = await api.get("/holdings");
       setHoldings(res.data);
     } catch {
       // keep the last known summary on a transient fetch failure

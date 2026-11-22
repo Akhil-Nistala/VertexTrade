@@ -30,7 +30,7 @@ const OrderActionWindow = ({ uid, mode }) => {
     setError("");
 
     try {
-      await api.post("/newOrder", {
+      await api.post("/orders", {
         name: uid,
         qty: Number(qty),
         price: Number(price),
