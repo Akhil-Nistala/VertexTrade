@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 
 function OpenAccount() {
   return (
@@ -8,9 +9,9 @@ function OpenAccount() {
         Modern platforms and apps, ₹0 investments, and a trusted experience.
       </p>
 
-      <button className="p-2 btn btn-primary fs-5 mt-3">
+      <Link to="/signup" className="p-2 btn btn-primary fs-5 mt-3">
         Sign up now
-      </button>
+      </Link>
     </div>
   );
 }

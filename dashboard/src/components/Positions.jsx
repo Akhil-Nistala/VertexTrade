@@ -34,7 +34,7 @@ const Positions = () => {
 
       {positions.length === 0 ? (
         <p className="empty-state">
-          No open positions yet — run <code>npm run seed</code> in the backend to add sample data.
+          No open positions yet.
         </p>
       ) : (
         <div className="order-table">

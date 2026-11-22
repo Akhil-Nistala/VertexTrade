@@ -748,3 +748,44 @@ hr {
   font-size: 0.75rem;
   color: rgb(180, 180, 180);
 }
+
+/* profile dropdown (logout) */
+
+.profile-wrapper {
+  position: relative;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 12px;
+  z-index: 100;
+}
+
+.profile-dropdown .profile-email {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  color: #666;
+  word-break: break-all;
+}
+
+.profile-dropdown button {
+  width: 100%;
+  padding: 8px;
+  font-size: 0.85rem;
+  color: #df514c;
+  background: none;
+  border: 1px solid #f1c4c2;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.profile-dropdown button:hover {
+  background: #fdf1f0;
+}

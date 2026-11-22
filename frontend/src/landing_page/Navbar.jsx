@@ -61,7 +61,7 @@ function Navbar() {
             <Link className="btn btn-outline-primary" to="/signup">
               Signup
             </Link>
-            <a className="btn btn-primary" href={DASHBOARD_URL}>
+            <a className="btn btn-primary" href={`${DASHBOARD_URL}/login`}>
               Login
             </a>
           </div>

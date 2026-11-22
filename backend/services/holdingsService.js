@@ -4,11 +4,12 @@ const { formatPercent } = require("../priceSimulator");
 // A BUY either opens a new holding or averages into an existing one —
 // same cost-basis math a real brokerage uses: new avg is the quantity-
 // weighted mean of the old position and the new fill.
-async function applyBuy(name, qty, price) {
-  const existing = await HoldingsModel.findOne({ name });
+async function applyBuy(userId, name, qty, price) {
+  const existing = await HoldingsModel.findOne({ user: userId, name });
 
   if (!existing) {
     await HoldingsModel.create({
+      user: userId,
       name,
       qty,
       avg: price,
@@ -31,8 +32,8 @@ async function applyBuy(name, qty, price) {
 // A SELL reduces the held quantity (cost basis / avg is unchanged by a
 // sell) and is rejected if it would sell more than is actually held —
 // closing the position entirely removes the holding.
-async function applySell(name, qty) {
-  const existing = await HoldingsModel.findOne({ name });
+async function applySell(userId, name, qty) {
+  const existing = await HoldingsModel.findOne({ user: userId, name });
 
   if (!existing || existing.qty < qty) {
     const held = existing?.qty ?? 0;

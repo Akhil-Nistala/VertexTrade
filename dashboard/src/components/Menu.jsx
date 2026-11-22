@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 
 import Logo from "./Logo";
+import { useAuth } from "../auth/AuthContext";
 
 const MARKETING_URL = import.meta.env.VITE_MARKETING_URL || "http://localhost:5173";
 
@@ -18,6 +19,14 @@ const MENU_ITEMS = [
 const Menu = () => {
   const [selectedMenu, setSelectedMenu] = useState(0);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const { user, logout } = useAuth();
+
+  const initials = (user?.name || "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
 
   const menuClass = "menu";
   const activeMenuClass = "menu selected";
@@ -44,9 +53,19 @@ const Menu = () => {
           ))}
         </ul>
         <hr />
-        <div className="profile" onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}>
-          <div className="avatar">VT</div>
-          <p className="username">USERID</p>
+        <div className="profile-wrapper">
+          <div className="profile" onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}>
+            <div className="avatar">{initials || "VT"}</div>
+            <p className="username">{user?.name}</p>
+          </div>
+          {isProfileDropdownOpen && (
+            <div className="profile-dropdown">
+              <p className="profile-email">{user?.email}</p>
+              <button type="button" onClick={logout}>
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

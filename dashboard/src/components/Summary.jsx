@@ -2,12 +2,14 @@ import React, { useCallback, useState } from "react";
 
 import { api } from "../lib/api";
 import { usePolling } from "../hooks/usePolling";
+import { useAuth } from "../auth/AuthContext";
 
 // No funds/margin backend in this demo — a small fixed figure stands in for
 // "available margin" so the summary layout still reads correctly.
 const MOCK_MARGIN = 3740;
 
 const Summary = () => {
+  const { user } = useAuth();
   const [holdings, setHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,7 +38,7 @@ const Summary = () => {
   return (
     <>
       <div className="username">
-        <h6>Hi, User!</h6>
+        <h6>Hi, {user?.name?.split(" ")[0] || "there"}!</h6>
         <hr className="divider" />
       </div>
 

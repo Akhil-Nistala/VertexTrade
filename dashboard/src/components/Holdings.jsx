@@ -50,7 +50,7 @@ const Holdings = () => {
 
       {allHoldings.length === 0 ? (
         <p className="empty-state">
-          No holdings yet — run <code>npm run seed</code> in the backend to add sample data.
+          No holdings yet — buy a stock from the watchlist to get started.
         </p>
       ) : (
         <>

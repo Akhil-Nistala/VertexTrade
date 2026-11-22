@@ -26,12 +26,12 @@ sharing a common data layer.
 ```
 
 - **frontend/** — the public marketing site (home, products, pricing, about,
-  support, signup). Static, Bootstrap-styled pages. Links to the dashboard
-  via a "Login" button.
-- **dashboard/** — the trading UI: watchlist, buy/sell order flow, holdings,
+  support). Static, Bootstrap-styled pages. "Login" and "Signup" link to the
+  dashboard's auth pages.
+- **dashboard/** — the trading UI: login/signup, watchlist, buy/sell order flow, holdings,
   positions, orders, and a portfolio summary, all backed by the API.
 - **backend/** — Express REST API backed by MongoDB (via Mongoose) for
-  holdings, positions, and orders.
+  users, holdings, positions, and orders, with JWT cookie authentication.
 
 ## Tech Stack
 
@@ -40,10 +40,17 @@ sharing a common data layer.
 | Frontend / Dashboard | React, Vite, Bootstrap |
 | Backend | Node.js, Express |
 | Database | MongoDB, Mongoose |
+| Auth | bcryptjs, jsonwebtoken, httpOnly cookies |
 | Tooling | ESLint / oxlint |
 
 ## Features
 
+- **Authentication** — email/password signup and login. Passwords are hashed
+  with bcrypt; the API issues a signed JWT (7-day expiry) in an **httpOnly,
+  SameSite=Lax cookie**, so page JavaScript never touches the token. Every
+  data route goes through `requireAuth` middleware, and every query is
+  filtered by the user id from the token — users only ever see and trade
+  against their own portfolio. New accounts start with a sample portfolio.
 - Full **buy and sell** order flow through a shared order modal with
   client-side quantity/price validation, and server-side validation plus
   cost-basis logic: a **buy** opens a new holding or averages into an
@@ -65,12 +72,22 @@ sharing a common data layer.
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| GET | `/allHoldings` | — | All Holdings documents |
-| GET | `/allPositions` | — | All Positions documents |
-| GET | `/allOrders` | — | All Orders, newest first |
+| POST | `/auth/signup` | `{ name, email, password }` | Password ≥ 8 chars. Creates the user, gives them the starter portfolio, sets the auth cookie. `409` if the email exists |
+| POST | `/auth/login` | `{ email, password }` | Sets the auth cookie. `401` with a generic message on bad credentials |
+| POST | `/auth/logout` | — | Clears the auth cookie |
+| GET | `/auth/me` | — | The logged-in user, or `401` |
+| GET | `/allHoldings` | — | The user's Holdings |
+| GET | `/allPositions` | — | The user's Positions |
+| GET | `/allOrders` | — | The user's Orders, newest first |
 | POST | `/newOrder` | `{ name, qty, price, mode }` | `mode` is `"BUY"` or `"SELL"`. Validated server-side (non-empty name, positive integer qty, positive finite price, valid mode) in addition to the dashboard's client-side checks. A `BUY` opens/averages into a Holdings document; a `SELL` reduces it and returns `400` if it exceeds the held quantity |
 
+All routes except signup/login/logout require the auth cookie and return `401` without it. CORS only allows the origins in `CLIENT_ORIGINS`, with credentials.
+
 ## Data models
+
+**Users** — `{ name, email, passwordHash, timestamps }` — `email` is unique and lowercased; only the bcrypt hash is stored.
+
+Holdings, Positions, and Orders each carry a required, indexed `user` reference.
 
 **Holdings** — `{ name, qty, avg, price, net, day }` — one document per symbol currently held; `avg` is the quantity-weighted cost basis, `price` is the simulated last-traded price, `net` is `(price - avg) / avg` as a percentage.
 
@@ -85,9 +102,9 @@ Each app has its own `package.json` and is run independently.
 1. **Backend**
    ```
    cd backend
-   cp .env.example .env      # then set MONGO_URL to your MongoDB connection string
+   cp .env.example .env      # then set MONGO_URL and JWT_SECRET
    npm install
-   npm run seed               # one-time: populates sample holdings & positions
+   npm run seed               # resets the DB and creates demo@vertextrade.dev / demo1234
    npm start                  # runs on :3002
    ```
 
@@ -106,7 +123,8 @@ Each app has its own `package.json` and is run independently.
    ```
 
 Open `http://localhost:5173` for the marketing site, or go straight to
-`http://localhost:5174` for the dashboard.
+`http://localhost:5174` for the dashboard — sign up, or log in with the
+demo account.
 
 ### Environment variables
 
@@ -114,16 +132,19 @@ Each app reads its own `.env` (Vite apps use `VITE_`-prefixed vars):
 
 | App        | Variable              | Default                  | Purpose                          |
 |------------|------------------------|---------------------------|-----------------------------------|
-| frontend   | `VITE_DASHBOARD_URL`   | `http://localhost:5174`   | Where the "Login" button points   |
+| frontend   | `VITE_DASHBOARD_URL`   | `http://localhost:5174`   | Where Login/Signup point          |
 | dashboard  | `VITE_API_URL`         | `http://localhost:3002`   | Backend base URL                  |
 | dashboard  | `VITE_MARKETING_URL`   | `http://localhost:5173`   | "Back to VertexTrade" link        |
 | backend    | `MONGO_URL`            | *(required)*               | MongoDB connection string         |
 | backend    | `PORT`                 | `3002`                     | API port                          |
+| backend    | `JWT_SECRET`           | *(required)*               | Secret for signing login tokens   |
+| backend    | `CLIENT_ORIGINS`       | `http://localhost:5173,http://localhost:5174` | Origins allowed to call the API with cookies |
 
 ## Roadmap
 
-- **Authentication** — currently a single-user demo; all sessions see the
-  same data.
+- **Auth hardening** — rate limiting on login, email verification, password
+  reset, and refresh-token rotation. In production on separate domains the
+  cookie would need `SameSite=None; Secure` plus CSRF tokens.
 - **Funds & Margin** — the Funds and Apps pages are illustrative; there is
   no funds/margin backend yet.
 - **Live market data** — the watchlist is currently frontend-only sample
