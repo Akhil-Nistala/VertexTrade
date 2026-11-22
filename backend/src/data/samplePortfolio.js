@@ -2,7 +2,10 @@
 // something to show right after signup. Also used by `npm run seed` for
 // the demo user.
 
-const holdings = [
+import { Holding } from "../models/holding.model.js";
+import { Position } from "../models/position.model.js";
+
+export const holdings = [
   { name: "BHARTIARTL", qty: 2, avg: 538.05, price: 541.15, net: "+0.58%", day: "+2.99%" },
   { name: "HDFCBANK", qty: 2, avg: 1383.4, price: 1522.35, net: "+10.04%", day: "+0.11%" },
   { name: "HINDUNILVR", qty: 1, avg: 2335.85, price: 2417.4, net: "+3.49%", day: "+0.21%" },
@@ -18,14 +21,12 @@ const holdings = [
   { name: "WIPRO", qty: 4, avg: 489.3, price: 577.75, net: "+18.08%", day: "+0.32%" },
 ];
 
-const positions = [
+export const positions = [
   { product: "CNC", name: "EVEREADY", qty: 2, avg: 316.27, price: 312.35, net: "+0.58%", day: "-1.24%", isLoss: true },
   { product: "CNC", name: "JUBLFOOD", qty: 1, avg: 3124.75, price: 3082.65, net: "+10.04%", day: "-1.35%", isLoss: true },
 ];
 
-async function giveStarterPortfolio(userId, { HoldingsModel, PositionsModel }) {
-  await HoldingsModel.insertMany(holdings.map((h) => ({ ...h, user: userId })));
-  await PositionsModel.insertMany(positions.map((p) => ({ ...p, user: userId })));
-}
-
-module.exports = { holdings, positions, giveStarterPortfolio };
+export const giveStarterPortfolio = async (userId) => {
+  await Holding.insertMany(holdings.map((h) => ({ ...h, user: userId })));
+  await Position.insertMany(positions.map((p) => ({ ...p, user: userId })));
+};

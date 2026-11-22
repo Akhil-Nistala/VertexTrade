@@ -41,6 +41,8 @@ sharing a common data layer.
 | Backend | Node.js, Express |
 | Database | MongoDB, Mongoose |
 | Auth | bcryptjs, jsonwebtoken, httpOnly cookies |
+| Validation | zod |
+| Testing | Jest, supertest |
 | Tooling | ESLint / oxlint |
 
 ## Features
@@ -76,6 +78,7 @@ sharing a common data layer.
 | POST | `/auth/login` | `{ email, password }` | Sets the auth cookie. `401` with a generic message on bad credentials |
 | POST | `/auth/logout` | — | Clears the auth cookie |
 | GET | `/auth/me` | — | The logged-in user, or `401` |
+| GET | `/health` | — | Liveness check, no auth |
 | GET | `/allHoldings` | — | The user's Holdings |
 | GET | `/allPositions` | — | The user's Positions |
 | GET | `/allOrders` | — | The user's Orders, newest first |
@@ -95,6 +98,35 @@ Holdings, Positions, and Orders each carry a required, indexed `user` reference.
 
 **Orders** — `{ name, qty, price, mode, timestamps }` — an immutable log of every accepted order.
 
+## Backend structure
+
+The API is split the usual Express way: `app.js` builds the app (middleware,
+routes, error handling) and exports it without touching the network;
+`server.js` connects to MongoDB, starts listening, and starts the price
+simulator. Tests import `app.js` directly and hit it with supertest.
+
+```
+backend/
+├── src/
+│   ├── app.js                  # Express app: CORS, cookies, routes, error handler
+│   ├── server.js               # Entry point: connect DB, listen, start simulator
+│   ├── seed.js                 # Resets the DB and creates the demo user
+│   ├── config/db.js            # MongoDB connection
+│   ├── routes/                 # auth, portfolio, order routers
+│   ├── controllers/            # Request handlers
+│   ├── middleware/             # requireAuth, zod validation, 404 + error handler
+│   ├── validators/             # zod schemas for auth and orders
+│   ├── models/                 # user, holding, position, order (Mongoose)
+│   ├── services/               # buy/sell cost-basis logic, price simulator
+│   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers
+│   └── data/samplePortfolio.js # Starter portfolio for new accounts
+└── tests/                      # Jest + supertest, models mocked (no DB needed)
+```
+
+Errors thrown anywhere (including inside async handlers, via `asyncHandler`)
+reach one error handler that returns `{ success: false, message }`; unknown
+errors are logged and returned as a generic 500.
+
 ## Setup
 
 Each app has its own `package.json` and is run independently.
@@ -105,7 +137,8 @@ Each app has its own `package.json` and is run independently.
    cp .env.example .env      # then set MONGO_URL and JWT_SECRET
    npm install
    npm run seed               # resets the DB and creates demo@vertextrade.dev / demo1234
-   npm start                  # runs on :3002
+   npm run dev                # runs on :3002 with auto-reload (npm start without)
+   npm test                   # API tests — no database needed
    ```
 
 2. **Dashboard**

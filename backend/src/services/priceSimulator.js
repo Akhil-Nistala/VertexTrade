@@ -4,22 +4,21 @@
 // has something to actually show moving. No-ops gracefully on an empty
 // collection or a transient DB hiccup — this is cosmetic, not core logic.
 
+import { Holding } from "../models/holding.model.js";
+import { Position } from "../models/position.model.js";
+import { formatPercent } from "../utils/formatPercent.js";
+
 const TICK_INTERVAL_MS = 4000;
 const MIN_MOVE_PERCENT = 0.05;
 const MAX_MOVE_PERCENT = 0.4;
 
-function randomMovePercent() {
+const randomMovePercent = () => {
   const magnitude = MIN_MOVE_PERCENT + Math.random() * (MAX_MOVE_PERCENT - MIN_MOVE_PERCENT);
   const direction = Math.random() < 0.5 ? -1 : 1;
   return direction * magnitude;
-}
+};
 
-function formatPercent(value) {
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-async function tickCollection(Model) {
+const tickCollection = async (Model) => {
   const docs = await Model.find({});
   if (docs.length === 0) return;
 
@@ -44,13 +43,10 @@ async function tickCollection(Model) {
       );
     })
   );
-}
+};
 
-function startPriceSimulator({ HoldingsModel, PositionsModel }) {
+export const startPriceSimulator = () =>
   setInterval(() => {
-    tickCollection(HoldingsModel).catch(() => {});
-    tickCollection(PositionsModel).catch(() => {});
+    tickCollection(Holding).catch(() => {});
+    tickCollection(Position).catch(() => {});
   }, TICK_INTERVAL_MS);
-}
-
-module.exports = { startPriceSimulator, formatPercent };

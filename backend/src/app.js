@@ -1,0 +1,34 @@
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+
+import authRoutes from "./routes/auth.routes.js";
+import portfolioRoutes from "./routes/portfolio.routes.js";
+import orderRoutes from "./routes/order.routes.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+
+// Builds and exports the Express app without connecting to the database or
+// opening a port — server.js does that. Keeping them apart lets tests import
+// the app and send it requests directly with supertest.
+const app = express();
+
+// Only these origins may call the API with the user's cookie attached.
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || "http://localhost:5173,http://localhost:5174")
+  .split(",")
+  .map((origin) => origin.trim());
+
+app.use(cors({ origin: CLIENT_ORIGINS, credentials: true }));
+app.use(cookieParser());
+app.use(express.json({ limit: "40kb" }));
+
+app.get("/health", (req, res) => res.status(200).json({ success: true, status: "ok" }));
+
+app.use("/auth", authRoutes);
+app.use(portfolioRoutes);
+app.use(orderRoutes);
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+export default app;
