@@ -1,8 +1,8 @@
 import React, { useCallback, useState } from "react";
 
-import { api } from "../lib/api";
+import { api } from "../config/api";
 import { usePolling } from "../hooks/usePolling";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../context/AuthContext";
 
 // No funds/margin backend in this demo — a small fixed figure stands in for
 // "available margin" so the summary layout still reads correctly.

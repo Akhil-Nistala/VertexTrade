@@ -1,5 +1,5 @@
-import Hero from "./Hero";
-import Brokerage from "./Brokerage";
+import Hero from "../components/pricing/Hero";
+import Brokerage from "../components/pricing/Brokerage";
 
 function PricingPage() {
   return (

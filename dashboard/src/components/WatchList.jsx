@@ -9,7 +9,7 @@ import {
   MoreHoriz,
 } from "@mui/icons-material";
 
-import GeneralContext from "./GeneralContext";
+import GeneralContext from "../context/GeneralContext";
 import { watchlist } from "../data/data";
 import { DoughnutChart } from "./DoughnutChart";
 

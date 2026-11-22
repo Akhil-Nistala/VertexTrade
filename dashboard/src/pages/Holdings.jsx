@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 
-import { VerticalGraph } from "./VerticalGraph";
-import { api } from "../lib/api";
+import { VerticalGraph } from "../components/VerticalGraph";
+import { api } from "../config/api";
 import { usePolling } from "../hooks/usePolling";
 import { usePriceFlash } from "../hooks/usePriceFlash";
 

@@ -1,9 +1,9 @@
 import React, { useContext, useMemo, useState } from "react";
 
-import { api } from "../lib/api";
-import GeneralContext from "./GeneralContext";
+import { api } from "../config/api";
+import GeneralContext from "../context/GeneralContext";
 
-import "./OrderActionWindow.css";
+import "../styles/orderActionWindow.css";
 
 const OrderActionWindow = ({ uid, mode }) => {
   const [qty, setQty] = useState(1);

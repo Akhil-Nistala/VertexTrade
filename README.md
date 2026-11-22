@@ -127,6 +127,32 @@ Errors thrown anywhere (including inside async handlers, via `asyncHandler`)
 reach one error handler that returns `{ success: false, message }`; unknown
 errors are logged and returned as a generic 500.
 
+## Frontend structure
+
+Both React apps use the same layout: route-level screens in `pages/`,
+reusable pieces in `components/`.
+
+```
+dashboard/src/
+├── App.jsx                 # Routes: /login, /signup, everything else behind withAuth
+├── pages/                  # Authentication, Home, Summary, Orders, Holdings, Positions, Funds, Apps
+├── components/             # TopBar, Menu, WatchList, OrderActionWindow, charts, Logo
+├── context/                # AuthContext (current user), GeneralContext (order window)
+├── config/api.js           # axios instance (withCredentials for the auth cookie)
+├── utils/withAuth.jsx      # HOC: renders a page only once /auth/me confirms the session
+├── hooks/                  # usePolling, usePriceFlash
+├── styles/                 # Page/component stylesheets
+└── data/                   # Sample watchlist
+
+frontend/src/
+├── App.jsx                 # Routes for the marketing pages
+├── pages/                  # Home, Products, Pricing, About, Support, Signup, NotFound
+└── components/             # Navbar, Footer, Logo, OpenAccount, plus per-page sections
+                            #   in home/, products/, pricing/, about/, support/
+```
+
+Each app has a `.env.example` listing its `VITE_` variables.
+
 ## Setup
 
 Each app has its own `package.json` and is run independently.

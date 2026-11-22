@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-import OrderActionWindow from "./OrderActionWindow";
+import OrderActionWindow from "../components/OrderActionWindow";
 
 const GeneralContext = React.createContext({
   openOrderWindow: (_uid, _mode) => {},

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 
-import { api } from "../lib/api";
+import { api } from "../config/api";
 import { usePolling } from "../hooks/usePolling";
 import { usePriceFlash } from "../hooks/usePriceFlash";
 

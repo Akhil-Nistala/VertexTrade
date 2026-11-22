@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 
 import Logo from "./Logo";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../context/AuthContext";
 
 const MARKETING_URL = import.meta.env.VITE_MARKETING_URL || "http://localhost:5173";
 

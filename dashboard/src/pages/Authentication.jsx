@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import Logo from "../components/Logo";
-import { useAuth } from "./AuthContext";
+import { useAuth } from "../context/AuthContext";
 
-import "./Auth.css";
+import "../styles/authentication.css";
 
 // One component for both forms — `mode` is "login" or "signup".
-const AuthPage = ({ mode }) => {
+const Authentication = ({ mode }) => {
   const isSignup = mode === "signup";
 
   const { user, checking, login, signup } = useAuth();
@@ -114,4 +114,4 @@ const AuthPage = ({ mode }) => {
   );
 };
 
-export default AuthPage;
+export default Authentication;

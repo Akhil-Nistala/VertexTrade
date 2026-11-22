@@ -1,5 +1,5 @@
-import Hero from "./Hero";
-import CreateTicket from "./CreateTicket";
+import Hero from "../components/support/Hero";
+import CreateTicket from "../components/support/CreateTicket";
 
 function SupportPage() {
   return (
