@@ -98,7 +98,7 @@ The three apps are independently runnable and deployable.
   logged and returned as a generic `500`.
 - Locked-down CORS (configured origins only, with credentials) and a
   `/health` endpoint.
-- **37 API tests** (Jest + supertest) covering signup, login, sessions, the
+- **39 API tests** (Jest + supertest) covering signup, login, sessions, cookie settings, the
   auth guard, per-user data scoping, market-price fills, cash checks, atomic
   buy/sell rules, the debit refund, and validation.
 
@@ -224,15 +224,52 @@ Each app has a `.env.example`. The Vite apps work with their defaults locally.
 | backend | `JWT_SECRET` | *(required)* | Secret for signing login tokens — use a long random string |
 | backend | `PORT` | `3002` | API port |
 | backend | `CLIENT_ORIGINS` | `http://localhost:5173,http://localhost:5174` | Origins allowed to call the API with cookies |
-| dashboard | `VITE_API_URL` | `http://localhost:3002` | Backend URL |
+| backend | `NODE_ENV` | — | `production` makes the auth cookie `Secure` |
+| backend | `COOKIE_SAMESITE` | `lax` (dev) / `none` (production) | Set to `lax` when the frontend proxies `/api` (as on Vercel) |
+| dashboard | `VITE_API_URL` | `http://localhost:3002` (dev) / same origin (production) | Backend URL; leave unset in production to use the Vercel proxy |
 | dashboard | `VITE_MARKETING_URL` | `http://localhost:5173` | Marketing site, linked from the logo |
 | frontend | `VITE_DASHBOARD_URL` | `http://localhost:5174` | Where Login and Signup point |
+
+## Deployment
+
+The backend runs on **Render** and both React apps on **Vercel**. The
+dashboard calls `/api/...` on its own domain and Vercel proxies it to Render,
+so the auth cookie is first-party and works with `SameSite=Lax` even in
+browsers that block third-party cookies.
+
+```
+browser ──▶ dashboard.vercel.app/api/v1/... ──(Vercel rewrite)──▶ vertextrade-api.onrender.com/api/v1/...
+```
+
+1. **Database** — create a free MongoDB Atlas cluster and copy its
+   connection string. Allow access from Render (Network Access →
+   `0.0.0.0/0` is simplest for a demo).
+2. **Backend (Render)** — New → Blueprint → select this repo. Render reads
+   [`render.yaml`](render.yaml): it builds `backend/`, generates
+   `JWT_SECRET`, sets `NODE_ENV=production` and `COOKIE_SAMESITE=lax`, and
+   health-checks `/health`. Fill in:
+   - `MONGO_URL` — the Atlas connection string
+   - `CLIENT_ORIGINS` — your two Vercel URLs, comma-separated
+3. **Dashboard (Vercel)** — New Project → this repo, root directory
+   `dashboard`. If your Render URL isn't `vertextrade-api.onrender.com`,
+   update the destination in [`dashboard/vercel.json`](dashboard/vercel.json).
+   Set `VITE_MARKETING_URL` to the marketing site's URL. Leave
+   `VITE_API_URL` unset so requests go through the proxy.
+4. **Marketing site (Vercel)** — New Project → this repo, root directory
+   `frontend`. Set `VITE_DASHBOARD_URL` to the dashboard's URL.
+5. **Demo data (optional)** — the server creates the market on startup;
+   sign up for an account, or run `npm run seed` locally with `MONGO_URL`
+   pointed at Atlas (this wipes that database).
+
+Render's free plan sleeps after inactivity, so the first request can take
+~30 seconds, and the price simulator only runs while the service is awake.
 
 ## Known limitations and roadmap
 
 - **Auth hardening** — rate limiting on login, email verification, password
-  reset, and refresh-token rotation. Deployed on separate domains, the
-  cookie would need `SameSite=None; Secure` plus CSRF protection.
+  reset, and refresh-token rotation. If the API were called cross-site
+  instead of through the proxy, the cookie would need `SameSite=None; Secure`
+  plus CSRF protection.
 - **Transactions** — the cash and holding updates are each atomic, with a
   refund if the second step fails, but they aren't wrapped in one MongoDB
   transaction (that needs a replica set).

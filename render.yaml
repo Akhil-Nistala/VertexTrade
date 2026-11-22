@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: vertextrade-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      # The dashboard proxies /api through its own domain (see
+      # dashboard/vercel.json), so the auth cookie is first-party.
+      - key: COOKIE_SAMESITE
+        value: lax
+      # Set these in the Render dashboard when creating the service.
+      - key: MONGO_URL
+        sync: false
+      - key: CLIENT_ORIGINS
+        sync: false

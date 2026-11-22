@@ -22,7 +22,7 @@ One file for everything: the pitch, the architecture, every file in the code, ev
 - **Real business logic** — the server picks the fill price (never the client), buys check the cash balance, buys average into the cost basis, sells are rejected if they exceed what you hold, and a rejected order is never logged.
 - **Race-safe money updates** — cash is debited and shares are removed with single conditional atomic updates, so simultaneous orders can't overspend or oversell.
 - **Secure-by-default auth** — httpOnly + SameSite cookie, no user enumeration (same message *and* similar timing for wrong email vs wrong password).
-- **Testable backend** — `app.js` / `server.js` split, so 37 HTTP tests run without a database.
+- **Testable backend** — `app.js` / `server.js` split, so 39 HTTP tests run without a database.
 
 ---
 
@@ -73,6 +73,7 @@ One file for everything: the pitch, the architecture, every file in the code, ev
 ```
 VertexTrade/
 ├── package.json              # root scripts: dev (all apps), install:all, test, seed
+├── render.yaml               # Render blueprint for the API
 ├── backend/
 │   ├── src/
 │   │   ├── app.js            # builds the Express app (no DB, no listen)
@@ -161,7 +162,7 @@ VertexTrade/
 ### Utils
 - **`ApiError`** — `Error` + `statusCode` + optional `details`.
 - **`asyncHandler(fn)`** — wraps async handlers, forwards rejections to `next(err)`. Without it, Express 4 never responds to a thrown async error and the request hangs.
-- **`tokens.js`** — `signSessionToken` (`{ sub: userId }`, 7d), `verifySessionToken`, `setSessionCookie` (httpOnly, SameSite=Lax, `secure` in production, 7-day maxAge), `clearSessionCookie`.
+- **`tokens.js`** — `signSessionToken` (`{ sub: userId }`, 7d), `verifySessionToken`, `setSessionCookie` (httpOnly, 7-day maxAge, `secure` in production, `sameSite` from `COOKIE_SAMESITE` or `lax` in dev / `none` in production), `clearSessionCookie`.
 - **`money.js`** — `roundMoney` (to paise) and `percentChange`.
 - **`data/market.js`** — the 18-symbol universe. `openMarket()` upserts missing stocks (`$setOnInsert`, so existing prices are kept), sets every `open` to the current price (a new "trading day" per server start), and backfills `cash` for accounts created before balances existed.
 - **`data/samplePortfolio.js`** — 13 holdings + 2 positions; `giveStarterPortfolio(userId)` inserts copies tagged with the user.
@@ -263,7 +264,7 @@ Same as signup from step 5, after `User.findOne` + `bcrypt.compare`. Wrong email
 
 - **Setup:** `tests/setup.js` sets `JWT_SECRET` and `CLIENT_ORIGINS`. Jest runs ES modules via `--experimental-vm-modules`.
 - **Approach:** `jest.unstable_mockModule` replaces the Mongoose models, then the tests `import app` and use **supertest** to send real HTTP requests in-process. No database, no open port.
-- **`auth.test.js` (10 tests):** signup normalizes input, stores only a hash, gives the starter portfolio, sets an httpOnly + SameSite=Lax cookie; duplicate email `409`; short password and bad email `400`; login success; wrong password and unknown email return the **same** `401`; `/me` without cookie `401`, with valid token `200`, tampered token `401`; logout clears the cookie.
+- **`auth.test.js` (12 tests):** production cookies are `Secure` and default to `SameSite=None`, or `Lax` with `COOKIE_SAMESITE=lax`; signup normalizes input, stores only a hash, gives the starter portfolio, sets an httpOnly + SameSite=Lax cookie; duplicate email `409`; short password and bad email `400`; login success; wrong password and unknown email return the **same** `401`; `/me` without cookie `401`, with valid token `200`, tampered token `401`; logout clears the cookie.
 - **`order.test.js` (27 tests):** all six data routes `401` without a session; holdings/positions/orders/funds are queried for `USER_ID` only; `/stocks` computes day change from open; BUY **fills at the market price even when the client sends price 1**; BUY debits with the exact conditional update `{ cash: { $gte: 600 } }`; insufficient funds `400` with **no holding or order**; averaging (2 @ 100 + 2 @ 200 → 4 @ 150); **refund when the holding save fails**; SELL uses the conditional decrement and credits proceeds; full sell deletes the holding; oversell `400` with **no credit and no order**; unknown symbol `400`; five invalid bodies `400`; `/health`; JSON 404.
 - **What they don't cover:** real MongoDB behavior (unique index, queries). Next step: `mongodb-memory-server` integration tests and frontend tests.
 
@@ -364,8 +365,14 @@ Socket.IO: the server emits price updates per symbol to subscribed clients after
 **Why is CORS configured with a list of origins?**
 With credentials, browsers reject `Access-Control-Allow-Origin: *`. A whitelist also stops other websites' JavaScript from reading API responses with the user's cookie.
 
-**What would you change to deploy this?**
-Frontend on Vercel, API on Render. Ideally proxy `/api` through the frontend's domain so the cookie stays first-party (Lax works). Otherwise set `SameSite=None; Secure` and add CSRF tokens. Set `JWT_SECRET`, `MONGO_URL`, `CLIENT_ORIGINS`, `NODE_ENV=production`.
+**How is it deployed?**
+API on Render (`render.yaml`: builds `backend/`, generates `JWT_SECRET`, health-checks `/health`), both React apps on Vercel, MongoDB on Atlas. The dashboard calls `/api` on its own domain and `dashboard/vercel.json` rewrites it to Render. That makes the auth cookie first-party, so `SameSite=Lax` works and browsers that block third-party cookies don't log users out. In production the cookie is also `Secure`.
+
+**Why proxy instead of calling Render directly?**
+Calling `onrender.com` from `vercel.app` is cross-site. The cookie would need `SameSite=None; Secure`, which reopens CSRF (you'd add CSRF tokens) and gets blocked by browsers that drop third-party cookies. The proxy avoids all of that. The trade-off is an extra hop through Vercel.
+
+**What happens on Render's free plan?**
+The service sleeps after inactivity, so the first request takes ~30s, and the price simulator only runs while it's awake.
 
 **Why MongoDB for a trading app?**
 Honest answer: it was quick to model and iterate on. For real money I'd prefer PostgreSQL — ACID transactions across holdings and orders, numeric types instead of floats, constraints like `qty >= 0`.
@@ -374,7 +381,7 @@ Honest answer: it was quick to model and iterate on. For real money I'd prefer P
 Cash and holdings are updated in two separate atomic steps with a compensating refund, not one transaction. I'd move to a replica set and wrap the debit, holding update, and order insert in a transaction — or keep an append-only ledger and derive balances from it.
 
 **How did you test it?**
-37 Jest + supertest tests with mocked models: auth flows, cookie flags, the auth guard on every route, per-user query scoping, market-price fills, the exact atomic update conditions, insufficient funds, the refund path, buy/sell rules, and validation. Plus manual end-to-end checks against a real database.
+39 Jest + supertest tests with mocked models: auth flows, cookie flags (including production settings), the auth guard on every route, per-user query scoping, market-price fills, the exact atomic update conditions, insufficient funds, the refund path, buy/sell rules, and validation. Plus manual end-to-end checks against a real database.
 
 **Why are prices stored as strings like "+0.58%"?**
 `net` and `day` are display strings carried over from the original UI. Better: store numbers and format in the frontend.
@@ -447,8 +454,9 @@ It signals a new resource was created; the response includes it.
 - Simulator: every **4s**, moves **0.05–0.4%**.
 - Dashboard polling: every **5s**; row flash lasts **900ms**.
 - Starter portfolio: **13 holdings, 2 positions**.
-- Tests: **37** (10 auth, 27 trading/data), no DB needed.
+- Tests: **39** (12 auth, 27 trading/data), no DB needed.
 - Starting cash: **₹1,00,000**. Market: **18 symbols**. Orders fill at the server's price.
 - Demo login: `demo@vertextrade.dev` / `demo1234` (created by `npm run seed`, which wipes the DB).
 - API base: `/api/v1`; health check at `/health`.
 - One command: `npm run dev` at the root starts all three apps.
+- Deploy: API on **Render** (`render.yaml`), apps on **Vercel** (`vercel.json`), DB on **Atlas**; `/api` proxied so the cookie is first-party.

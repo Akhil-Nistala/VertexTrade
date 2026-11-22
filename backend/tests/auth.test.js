@@ -146,3 +146,41 @@ describe("POST /api/v1/auth/logout", () => {
     expect(sessionCookieFrom(res)).toMatch(/token=;/);
   });
 });
+
+describe("cookie settings in production", () => {
+  const original = { NODE_ENV: process.env.NODE_ENV, COOKIE_SAMESITE: process.env.COOKIE_SAMESITE };
+  const passwordHash = bcrypt.hashSync("password123", 4);
+
+  const loginCookie = async () => {
+    mockUser.findOne.mockResolvedValue({ _id: USER_ID, name: "Alice", email: "a@example.com", passwordHash });
+    const res = await request(app).post("/api/v1/auth/login").send({ email: "a@example.com", password: "password123" });
+    return sessionCookieFrom(res);
+  };
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it("is Secure and SameSite=None by default (cross-site API)", async () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.COOKIE_SAMESITE;
+
+    const cookie = await loginCookie();
+
+    expect(cookie).toMatch(/Secure/);
+    expect(cookie).toMatch(/SameSite=None/);
+  });
+
+  it("honours COOKIE_SAMESITE=lax when the frontend proxies /api", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.COOKIE_SAMESITE = "lax";
+
+    const cookie = await loginCookie();
+
+    expect(cookie).toMatch(/Secure/);
+    expect(cookie).toMatch(/SameSite=Lax/);
+  });
+});
