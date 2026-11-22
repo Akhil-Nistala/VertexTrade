@@ -1,109 +1,135 @@
 # VertexTrade
 
-A full-stack stock trading platform: a public marketing site, a live trading
-dashboard, and a REST API, built with React, Express, and MongoDB.
+A full-stack stock trading platform: a public marketing site, an
+authenticated trading dashboard, and a REST API, built with React, Express,
+and MongoDB.
 
-VertexTrade demonstrates an end-to-end trading product — order placement,
-real-time-feeling price updates, portfolio tracking, and a public-facing
-marketing site — implemented as three independently deployable applications
-sharing a common data layer.
+Users sign up, get a starter portfolio, and buy and sell stocks against it
+while a price simulator keeps the market moving. Each user's holdings,
+positions, and orders are private to their account.
 
 ## Architecture
 
 ```
-                              VertexTrade
-                                   │
-                ┌──────────────────┼──────────────────┐
-                │                  │                  │
-                ▼                  ▼                  ▼
-           frontend            dashboard            backend
-        (marketing site)    (trading dashboard)    (REST API)
-         React + Vite         React + Vite        Express + Mongoose
-          :5173                 :5174                 :3002
-                │                  │                  │
-                └──── "Login" ─────┘                  │
-                                   └──── HTTP ─────────┘
+   frontend (marketing site)         dashboard (trading app)          backend (REST API)
+   React + Vite + Bootstrap          React + Vite + MUI               Express + Mongoose
+   :5173                             :5174                            :3002
+          │                                 │                                 │
+          │  Login / Signup links  ───────▶ │                                 │
+          │                                 │  HTTP + httpOnly JWT cookie ──▶ │ ──▶ MongoDB
+          │                                 │  (polls every 5s)               │
+          │                                 │                                 │ price simulator
+          │                                 │                                 │ (ticks every 4s)
 ```
 
-- **frontend/** — the public marketing site (home, products, pricing, about,
-  support). Static, Bootstrap-styled pages. "Login" and "Signup" link to the
-  dashboard's auth pages.
-- **dashboard/** — the trading UI: login/signup, watchlist, buy/sell order flow, holdings,
-  positions, orders, and a portfolio summary, all backed by the API.
-- **backend/** — Express REST API backed by MongoDB (via Mongoose) for
-  users, holdings, positions, and orders, with JWT cookie authentication.
+- **frontend/** — static marketing pages (home, products, pricing, about,
+  support). Login and Signup hand off to the dashboard.
+- **dashboard/** — login/signup, watchlist, buy/sell order window, holdings,
+  positions, orders, and a portfolio summary — all behind authentication
+  and backed by the API.
+- **backend/** — Express API over MongoDB: authentication, per-user
+  portfolio data, order placement, and a background price simulator.
 
-## Tech Stack
+The three apps are independently runnable and deployable.
+
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Frontend / Dashboard | React, Vite, Bootstrap |
-| Backend | Node.js, Express |
+| Marketing site | React, Vite, React Router, Bootstrap |
+| Dashboard | React, Vite, React Router, MUI, Chart.js, axios |
+| Backend | Node.js, Express (ES modules) |
 | Database | MongoDB, Mongoose |
 | Auth | bcryptjs, jsonwebtoken, httpOnly cookies |
 | Validation | zod |
 | Testing | Jest, supertest |
-| Tooling | ESLint / oxlint |
+| Linting | ESLint (frontend), oxlint (dashboard) |
 
 ## Features
 
-- **Authentication** — email/password signup and login. Passwords are hashed
-  with bcrypt; the API issues a signed JWT (7-day expiry) in an **httpOnly,
-  SameSite=Lax cookie**, so page JavaScript never touches the token. Every
-  data route goes through `requireAuth` middleware, and every query is
-  filtered by the user id from the token — users only ever see and trade
-  against their own portfolio. New accounts start with a sample portfolio.
-- Full **buy and sell** order flow through a shared order modal with
-  client-side quantity/price validation, and server-side validation plus
-  cost-basis logic: a **buy** opens a new holding or averages into an
-  existing one (quantity-weighted average cost), and a **sell** reduces
-  the held quantity — or is rejected with a 400 if it would sell more
-  than is actually held — closing the position removes the holding
-- **Holdings, Positions, and Orders** are all real, MongoDB-backed data
-  fetched live from the API — not hardcoded or static
-- A backend **price simulator** nudges every holding/position price by a
-  small random amount (0.05%–0.4%) on a 4-second tick, recomputing `net`
-  against average cost each time; the dashboard polls for updates on a
-  5-second interval across all four data views (Holdings, Positions,
-  Orders, Summary), so rows flash green/red like a live market feed
-- **Portfolio summary** (investment, current value, P&L) computed live from
-  real holdings data
-- Watchlist with live search filtering
+### Authentication
+- Email/password signup and login. Passwords are hashed with **bcrypt**;
+  only the hash is stored.
+- The API issues a signed **JWT (7-day expiry) in an httpOnly, SameSite=Lax
+  cookie**, so page JavaScript never sees the token.
+- Every data route runs `requireAuth`, and every query is filtered by the
+  user id **from the token** — never from client input — so users can only
+  see and trade against their own portfolio.
+- Login returns the same error for an unknown email and a wrong password,
+  and compares against a dummy hash when the email doesn't exist, so
+  neither the message nor the timing reveals which emails are registered.
+- The dashboard confirms the session with `/auth/me` on load, guards pages
+  with a `withAuth` wrapper, and returns to the login page if any request
+  comes back `401`.
+- New accounts start with a sample portfolio so the dashboard isn't empty.
+
+### Trading
+- **Buy and sell** through a shared order window, validated on the client
+  and again on the server (zod).
+- A **buy** opens a new holding or averages into an existing one
+  (quantity-weighted average cost). A **sell** reduces the quantity, removes
+  the holding when it reaches zero, and is rejected with `400` if it exceeds
+  what's held — rejected orders are never logged.
+- Every accepted order is recorded in the user's order history.
+
+### Live portfolio
+- A backend **price simulator** moves every holding and position price by
+  0.05%–0.4% every 4 seconds and recomputes net change against cost.
+- The dashboard polls every 5 seconds; changed rows flash green or red.
+- **Portfolio summary** — investment, current value, and P&L — computed from
+  live holdings.
+- Watchlist with search filtering.
+
+### Backend quality
+- `app.js` / `server.js` split, so the app can be tested without a database
+  or open port.
+- Central error handling: errors thrown anywhere — including inside async
+  handlers — return `{ success: false, message }`; unexpected errors are
+  logged and returned as a generic `500`.
+- Locked-down CORS (configured origins only, with credentials) and a
+  `/health` endpoint.
+- **28 API tests** (Jest + supertest) covering signup, login, sessions, the
+  auth guard, per-user data scoping, validation, and buy/sell rules.
 
 ## API
 
+All routes except `/health` and signup/login/logout require the auth cookie
+and return `401` without it. Errors are returned as
+`{ success: false, message }`, with per-field `errors` for validation
+failures.
+
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| POST | `/auth/signup` | `{ name, email, password }` | Password ≥ 8 chars. Creates the user, gives them the starter portfolio, sets the auth cookie. `409` if the email exists |
+| POST | `/auth/signup` | `{ name, email, password }` | Password ≥ 8 characters. Creates the user and their starter portfolio, sets the auth cookie. `409` if the email is taken |
 | POST | `/auth/login` | `{ email, password }` | Sets the auth cookie. `401` with a generic message on bad credentials |
 | POST | `/auth/logout` | — | Clears the auth cookie |
-| GET | `/auth/me` | — | The logged-in user, or `401` |
-| GET | `/health` | — | Liveness check, no auth |
-| GET | `/allHoldings` | — | The user's Holdings |
-| GET | `/allPositions` | — | The user's Positions |
-| GET | `/allOrders` | — | The user's Orders, newest first |
-| POST | `/newOrder` | `{ name, qty, price, mode }` | `mode` is `"BUY"` or `"SELL"`. Validated server-side (non-empty name, positive integer qty, positive finite price, valid mode) in addition to the dashboard's client-side checks. A `BUY` opens/averages into a Holdings document; a `SELL` reduces it and returns `400` if it exceeds the held quantity |
-
-All routes except signup/login/logout require the auth cookie and return `401` without it. CORS only allows the origins in `CLIENT_ORIGINS`, with credentials.
+| GET | `/auth/me` | — | The logged-in user |
+| GET | `/health` | — | Liveness check |
+| GET | `/allHoldings` | — | The user's holdings |
+| GET | `/allPositions` | — | The user's positions |
+| GET | `/allOrders` | — | The user's orders, newest first |
+| POST | `/newOrder` | `{ name, qty, price, mode }` | `qty` a positive integer, `price` a positive number, `mode` `"BUY"` or `"SELL"`. `400` on invalid input or when selling more than is held |
 
 ## Data models
 
-**Users** — `{ name, email, passwordHash, timestamps }` — `email` is unique and lowercased; only the bcrypt hash is stored.
+Holdings, Positions, and Orders each carry a required, indexed `user`
+reference.
 
-Holdings, Positions, and Orders each carry a required, indexed `user` reference.
+| Model | Fields | Notes |
+|---|---|---|
+| **User** | `name, email, passwordHash, timestamps` | `email` is unique and lowercased |
+| **Holding** | `user, name, qty, avg, price, net, day` | One per symbol held. `avg` is the cost basis, `price` the simulated last price, `net` = `(price − avg) / avg` |
+| **Position** | `user, product, name, qty, avg, price, net, day, isLoss` | Part of the starter portfolio; moved by the same simulator |
+| **Order** | `user, name, qty, price, mode, timestamps` | Log of every accepted order |
 
-**Holdings** — `{ name, qty, avg, price, net, day }` — one document per symbol currently held; `avg` is the quantity-weighted cost basis, `price` is the simulated last-traded price, `net` is `(price - avg) / avg` as a percentage.
+## Project structure
 
-**Positions** — `{ product, name, qty, avg, price, net, day, isLoss }` — seeded independently of Holdings; nudged by the same price simulator.
+### Backend
 
-**Orders** — `{ name, qty, price, mode, timestamps }` — an immutable log of every accepted order.
-
-## Backend structure
-
-The API is split the usual Express way: `app.js` builds the app (middleware,
-routes, error handling) and exports it without touching the network;
-`server.js` connects to MongoDB, starts listening, and starts the price
-simulator. Tests import `app.js` directly and hit it with supertest.
+`app.js` builds the Express app (middleware, routes, error handling) and
+exports it without connecting to anything; `server.js` connects to MongoDB,
+starts listening, and starts the price simulator. Tests import `app.js`
+directly.
 
 ```
 backend/
@@ -116,18 +142,14 @@ backend/
 │   ├── controllers/            # Request handlers
 │   ├── middleware/             # requireAuth, zod validation, 404 + error handler
 │   ├── validators/             # zod schemas for auth and orders
-│   ├── models/                 # user, holding, position, order (Mongoose)
+│   ├── models/                 # user, holding, position, order
 │   ├── services/               # buy/sell cost-basis logic, price simulator
 │   ├── utils/                  # ApiError, asyncHandler, JWT cookie helpers
 │   └── data/samplePortfolio.js # Starter portfolio for new accounts
 └── tests/                      # Jest + supertest, models mocked (no DB needed)
 ```
 
-Errors thrown anywhere (including inside async handlers, via `asyncHandler`)
-reach one error handler that returns `{ success: false, message }`; unknown
-errors are logged and returned as a generic 500.
-
-## Frontend structure
+### Frontends
 
 Both React apps use the same layout: route-level screens in `pages/`,
 reusable pieces in `components/`.
@@ -138,10 +160,10 @@ dashboard/src/
 ├── pages/                  # Authentication, Home, Summary, Orders, Holdings, Positions, Funds, Apps
 ├── components/             # TopBar, Menu, WatchList, OrderActionWindow, charts, Logo
 ├── context/                # AuthContext (current user), GeneralContext (order window)
-├── config/api.js           # axios instance (withCredentials for the auth cookie)
-├── utils/withAuth.jsx      # HOC: renders a page only once /auth/me confirms the session
+├── config/api.js           # axios instance (sends the auth cookie)
+├── utils/withAuth.jsx      # Renders a page only once /auth/me confirms the session
 ├── hooks/                  # usePolling, usePriceFlash
-├── styles/                 # Page/component stylesheets
+├── styles/                 # Stylesheets
 └── data/                   # Sample watchlist
 
 frontend/src/
@@ -151,67 +173,78 @@ frontend/src/
                             #   in home/, products/, pricing/, about/, support/
 ```
 
-Each app has a `.env.example` listing its `VITE_` variables.
+## Getting started
 
-## Setup
-
-Each app has its own `package.json` and is run independently.
+**Prerequisites:** Node.js 18+ and a MongoDB instance (local or Atlas).
 
 1. **Backend**
    ```
    cd backend
-   cp .env.example .env      # then set MONGO_URL and JWT_SECRET
+   cp .env.example .env      # set MONGO_URL and JWT_SECRET
    npm install
-   npm run seed               # resets the DB and creates demo@vertextrade.dev / demo1234
-   npm run dev                # runs on :3002 with auto-reload (npm start without)
-   npm test                   # API tests — no database needed
+   npm run seed              # optional — WIPES the database and creates the demo user
+   npm run dev               # :3002, auto-reloads (npm start runs without)
    ```
 
 2. **Dashboard**
    ```
    cd dashboard
    npm install
-   npm run dev                 # runs on :5174
+   npm run dev               # :5174
    ```
 
-3. **Frontend**
+3. **Marketing site**
    ```
    cd frontend
    npm install
-   npm run dev                 # runs on :5173
+   npm run dev               # :5173
    ```
 
-Open `http://localhost:5173` for the marketing site, or go straight to
-`http://localhost:5174` for the dashboard — sign up, or log in with the
-demo account.
+Open `http://localhost:5174` and sign up, or log in with the demo account
+created by the seed script:
+
+```
+Email:    demo@vertextrade.dev
+Password: demo1234
+```
+
+### Tests
+
+```
+cd backend
+npm test                    # no database required
+```
 
 ### Environment variables
 
-Each app reads its own `.env` (Vite apps use `VITE_`-prefixed vars):
+Each app has a `.env.example`. The Vite apps work with their defaults locally.
 
-| App        | Variable              | Default                  | Purpose                          |
-|------------|------------------------|---------------------------|-----------------------------------|
-| frontend   | `VITE_DASHBOARD_URL`   | `http://localhost:5174`   | Where Login/Signup point          |
-| dashboard  | `VITE_API_URL`         | `http://localhost:3002`   | Backend base URL                  |
-| dashboard  | `VITE_MARKETING_URL`   | `http://localhost:5173`   | "Back to VertexTrade" link        |
-| backend    | `MONGO_URL`            | *(required)*               | MongoDB connection string         |
-| backend    | `PORT`                 | `3002`                     | API port                          |
-| backend    | `JWT_SECRET`           | *(required)*               | Secret for signing login tokens   |
-| backend    | `CLIENT_ORIGINS`       | `http://localhost:5173,http://localhost:5174` | Origins allowed to call the API with cookies |
+| App | Variable | Default | Purpose |
+|---|---|---|---|
+| backend | `MONGO_URL` | *(required)* | MongoDB connection string |
+| backend | `JWT_SECRET` | *(required)* | Secret for signing login tokens — use a long random string |
+| backend | `PORT` | `3002` | API port |
+| backend | `CLIENT_ORIGINS` | `http://localhost:5173,http://localhost:5174` | Origins allowed to call the API with cookies |
+| dashboard | `VITE_API_URL` | `http://localhost:3002` | Backend URL |
+| dashboard | `VITE_MARKETING_URL` | `http://localhost:5173` | Marketing site, linked from the logo |
+| frontend | `VITE_DASHBOARD_URL` | `http://localhost:5174` | Where Login and Signup point |
 
-## Roadmap
+## Known limitations and roadmap
 
+- **Shared market prices** — the simulator moves each user's copy of a stock
+  independently, so two users holding the same symbol see different prices.
+  A real system would keep one price table that holdings reference.
 - **Auth hardening** — rate limiting on login, email verification, password
-  reset, and refresh-token rotation. In production on separate domains the
-  cookie would need `SameSite=None; Secure` plus CSRF tokens.
-- **Funds & Margin** — the Funds and Apps pages are illustrative; there is
-  no funds/margin backend yet.
-- **Live market data** — the watchlist is currently frontend-only sample
-  data; only Holdings, Positions, and Orders are backend-driven.
+  reset, and refresh-token rotation. Deployed on separate domains, the
+  cookie would need `SameSite=None; Secure` plus CSRF protection.
+- **Funds & margin** — the Funds and Apps pages are illustrative; there is
+  no balance check on buys yet.
+- **Market data** — the watchlist is frontend sample data; only holdings,
+  positions, and orders come from the backend.
+- **Frontend tests and CI** — the API is tested; the React apps are not yet.
 
 ## Disclaimer
 
-VertexTrade is an independent demo/portfolio project and is not a real
-trading platform. It is not affiliated with, endorsed by, or associated with
-any real broker — no real money, real orders, or real market data are
-involved.
+VertexTrade is an independent demo/portfolio project, not a real trading
+platform. It is not affiliated with any broker, and no real money, orders,
+or market data are involved.
