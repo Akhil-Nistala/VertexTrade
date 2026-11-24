@@ -114,7 +114,7 @@ VertexTrade/
 ## 5. Backend, file by file
 
 ### Entry points
-- **`src/app.js`** — creates the Express app; registers CORS (origin whitelist from `CLIENT_ORIGINS`, `credentials: true`), `cookie-parser`, `express.json` and `express.urlencoded` (40kb limits), `GET /health`, the six routers under `/api/v1/...` (auth, holdings, positions, orders, stocks, funds), then the 404 handler and error handler. **Exports the app without listening** — that's what makes it testable.
+- **`src/app.js`** — creates the Express app; registers CORS (origin whitelist from `CLIENT_ORIGINS`, `credentials: true`), `cookie-parser`, `express.json` (40kb limit; no form parser, so the API only accepts JSON — part of the CSRF defence), `GET /health`, the six routers under `/api/v1/...` (auth, holdings, positions, orders, stocks, funds), then the 404 handler and error handler. **Exports the app without listening** — that's what makes it testable.
 - **`src/server.js`** — fails fast if `JWT_SECRET` is missing, connects MongoDB via `connectDB(MONGO_URL)` (which also fails fast on a standalone server — transactions need a replica set), runs `openMarket()`, expires the previous session's pending orders (`expirePendingOrders()`), calls `app.listen`, then `startPriceSimulator()`. Any startup error → log and `process.exit(1)`.
 - **`src/seed.js`** — connects, deletes all users/holdings/positions/orders/stocks, re-opens the market, creates `demo@vertextrade.dev / demo1234` with a bcrypt hash, gives it the starter portfolio, disconnects.
 

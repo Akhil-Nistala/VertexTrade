@@ -95,6 +95,28 @@ The three apps are independently runnable and deployable.
    out. `POST /api/v1/auth/logout` clears the cookie with the same options
    it was set with.
 
+### XSS and CSRF
+
+Keeping the token in an httpOnly cookie instead of `localStorage` protects
+it from **XSS**: injected script can't read it. The trade-off is that
+browsers attach cookies to requests automatically, which opens the door to
+**CSRF**: a page on another site making the user's browser send a request to
+this API with their cookie (to place or cancel an order, say). Four layers
+stop that:
+
+1. **`SameSite=Lax` cookie (the main defence).** The browser only sends the
+   cookie on cross-site requests that are top-level `GET` navigations, like
+   clicking a link. A cross-site `POST`, whether from a form or `fetch`,
+   arrives without it and gets `401`.
+2. **No `GET` endpoint changes state.** Placing and cancelling orders and
+   logging out are all `POST`s, so the one cross-site request that does
+   carry the cookie can't do anything.
+3. **JSON-only request bodies.** `app.js` registers `express.json()` and no
+   form parser, so an HTML form on another site can't submit a usable order.
+4. **Credentialed CORS locked to `CLIENT_ORIGINS`.** A cross-site `fetch`
+   with a JSON body triggers a CORS preflight that only the configured
+   origins pass, and other sites can't read any response.
+
 ### Trading
 - **Market orders** fill immediately at the server's current price. The
   client never sends a fill price; one it does send is ignored.
@@ -141,8 +163,8 @@ The three apps are independently runnable and deployable.
 - Central error handling: errors thrown anywhere — including inside async
   handlers — return `{ success: false, message }`; unexpected errors are
   logged and returned as a generic `500`.
-- Locked-down CORS (configured origins only, with credentials), 40kb
-  request body limits, and a `/health` endpoint.
+- Locked-down CORS (configured origins only, with credentials), JSON-only
+  request bodies with a 40kb limit, and a `/health` endpoint.
 - **63 unit tests** (Jest + supertest, models mocked) covering auth, cookie
   settings, the auth guard, per-user scoping, validation, and every trading
   path — asserting the exact conditional updates and that each write runs
@@ -211,7 +233,7 @@ and starts the price simulator. Tests import `app.js` directly.
 ```
 backend/
 ├── src/
-│   ├── app.js                  # Express app: CORS, cookies, routes, error handler
+│   ├── app.js                  # Express app: CORS, cookies, JSON-only body parsing, routes, error handler
 │   ├── server.js               # Entry point: connect DB, open market, expire stale orders, listen, simulate
 │   ├── seed.js                 # Resets the DB and creates the demo user
 │   ├── config/db.js            # MongoDB connection + replica-set check
@@ -357,9 +379,13 @@ Render's free plan sleeps after inactivity, so the first request can take
   clears the cookie in that browser. Refresh-token rotation or a server-side
   denylist would allow revoking sessions.
 - **Auth hardening** — rate limiting on login, email verification, and
-  password reset. If the API were called cross-site
-  instead of through the proxy, the cookie would need `SameSite=None; Secure`
-  plus CSRF protection.
+  password reset.
+- **Body-less POSTs rely on SameSite alone** — `POST /orders/:id/cancel` and
+  `POST /auth/logout` take no body, so the JSON-only rule doesn't apply to
+  them; `SameSite=Lax` is what stops a forged one. If the API were called
+  cross-site instead of through the proxy, the cookie would need
+  `SameSite=None; Secure`, and an `Origin` header check (or CSRF tokens) on
+  write requests would be needed.
 - **Order types** — market and day limit orders only: no stop-loss, no
   good-till-cancelled, no partial fills (any quantity fills at once in the
   simulated market).
